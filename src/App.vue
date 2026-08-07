@@ -4,7 +4,7 @@
  * 全屏高德地图 + 玻璃拟态浮层（左上台风列表 / 左下实况卡 / 底部右强度曲线）
  * + 顶部数据时间与刷新。
  */
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { fetchTyphoonDetail, fetchTyphoonList } from './api/typhoon'
 import type { NormalizedTyphoon, TyphoonSummary } from './types/typhoon'
 import { useAmapMap } from './composables/useAmapMap'
@@ -33,9 +33,6 @@ const updatedAt = ref<Date | null>(null)
 const showCloud = ref(false)
 const showRadar = ref(false)
 const showWind = ref(false)
-
-// 图例折叠（仅移动端生效，桌面端按钮隐藏）
-const legendOpen = ref(false)
 
 // 移动端：抽屉详情展开态（false=收起信息条）；图例弹出卡开关与卡片 DOM
 const detailExpanded = ref(false)
@@ -68,13 +65,14 @@ function onDocClick(e: MouseEvent) {
   }
 }
 
-// 取台风最后一个路径点的强度码/风速（供移动端抽屉信息条展示）
-function lastLevel(t: NormalizedTyphoon): string {
-  return t.path[t.path.length - 1]?.level ?? ''
-}
-function lastWind(t: NormalizedTyphoon): number {
-  return t.path[t.path.length - 1]?.wind ?? 0
-}
+// 移动端抽屉信息条：一次性取出最后一个路径点的强度名/色/风速
+const lastInfo = computed(() => {
+  const t = typhoon.value
+  if (!t || t.path.length === 0) return null
+  const last = t.path[t.path.length - 1]
+  const lvl = levelForCode(last.level)
+  return { name: lvl.name, color: lvl.color, wind: last.wind }
+})
 
 function fmt(ms: number): string {
   const d = new Date(ms)
@@ -183,11 +181,8 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- 右上：图例（沿海警戒线 + 强度等级 + 风圈等级；手机端折叠） -->
-      <div class="glass legend" :class="{ open: legendOpen }">
-        <button class="legend-toggle" @click="legendOpen = !legendOpen">
-          {{ legendOpen ? '✕ 收起图例' : '☰ 图例' }}
-        </button>
+      <!-- 右上：图例（沿海警戒线 + 强度等级 + 风圈等级） -->
+      <div class="glass legend">
         <div class="legend-body-wrap">
           <LegendContent />
           <!-- 桌面端在此显示图层开关；手机端整层隐藏，图层开关由 .m-toolbar 承担 -->
@@ -234,7 +229,6 @@ onUnmounted(() => {
         <template v-if="!activeId">
           <div class="m-drawer-head">
             <span>活跃台风 {{ list.length }} 个</span>
-            <span class="m-drawer-caret">▾</span>
           </div>
           <TyphoonList :list="list" :active-id="activeId" :loading="loading" @select="handleSelect" />
         </template>
@@ -244,11 +238,8 @@ onUnmounted(() => {
           <button class="m-info-bar" @click="toggleDetail">
             <span class="m-back" @click.stop="handleClear">☰全部</span>
             <span class="m-info-name">{{ typhoon.nameCn ?? typhoon.nameEn }}</span>
-            <span
-              class="m-info-badge"
-              :style="{ background: levelForCode(lastLevel(typhoon)).color }"
-            >{{ levelForCode(lastLevel(typhoon)).name }}</span>
-            <span class="m-info-wind">{{ lastWind(typhoon) }} m/s</span>
+            <span class="m-info-badge" :style="{ background: lastInfo?.color }">{{ lastInfo?.name }}</span>
+            <span class="m-info-wind">{{ lastInfo?.wind }} m/s</span>
             <span class="m-drawer-caret">{{ detailExpanded ? '▾' : '▴' }}</span>
           </button>
           <div v-show="detailExpanded" class="m-drawer-body">

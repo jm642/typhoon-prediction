@@ -325,19 +325,6 @@ body {
   margin-top: 8px;
 }
 
-/* 图例折叠按钮：桌面端隐藏，仅手机端显示（媒体查询中覆盖 display） */
-.legend-toggle {
-  display: none;
-  padding: 4px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(148, 180, 220, 0.25);
-  background: rgba(148, 180, 220, 0.08);
-  color: #c7d6ea;
-  font-size: 12px;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-
 /* ============ 图层开关（云图/雷达/风场） ============ */
 .layer-toggles {
   display: flex;
