@@ -11,6 +11,7 @@ const props = defineProps<{ typhoon: NormalizedTyphoon | null }>()
 
 const el = ref<HTMLElement | null>(null)
 let chart: echarts.ECharts | null = null
+let ro: ResizeObserver | null = null
 
 function fmt(ms: number): string {
   const d = new Date(ms)
@@ -83,18 +84,19 @@ function render() {
   })
 }
 
-function resize() {
-  chart?.resize()
-}
-
 onMounted(() => {
-  if (el.value) chart = echarts.init(el.value)
-  render()
-  window.addEventListener('resize', resize)
+  if (el.value) {
+    chart = echarts.init(el.value)
+    render()
+    // 容器尺寸变化（如抽屉展开/收起）时自动 resize
+    ro = new ResizeObserver(() => chart?.resize())
+    ro.observe(el.value)
+  }
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', resize)
+  ro?.disconnect()
+  ro = null
   chart?.dispose()
   chart = null
 })
