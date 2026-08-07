@@ -108,6 +108,12 @@ function openInfo(point: TyphoonPoint) {
   })
   iw.open(map, [point.lng, point.lat])
   infoWindow = iw
+  // 点击弹窗内容不关闭：阻止其 click 冒泡到地图（否则 map click 会误关弹窗）
+  requestAnimationFrame(() => {
+    const wrap = map.getContainer?.()
+    const contentEl = wrap?.querySelector?.('.amap-info-content')
+    contentEl?.addEventListener?.('click', (e: Event) => e.stopPropagation())
+  })
 }
 let infoWindow: any = null
 function closeInfo() {
@@ -249,7 +255,9 @@ function onMapClick(e: any) {
       bestD = dist
     }
   }
+  // 命中路径点弹详情；未命中视为点击弹窗外区域 → 关闭弹窗
   if (best) openInfo(best.point)
+  else closeInfo()
 }
 
 // 当前中心（脉冲标记，DOM marker z=120，本就在最上层）
@@ -274,7 +282,7 @@ function syncMarkers() {
   map.add(centerMarkers)
   // 仅选中某台风时聚焦其路径范围（避开左上/底部玻璃浮层）；无选中时保持初始视图
   if (selectedId && toDraw.some((t) => t.path.length || t.forecast.length)) {
-    map.setFitView(null, false, [130, 60, 170, 230], 10)
+    map.setFitView(null, false, [130, 60, 170, 230], 6)
   }
 }
 
