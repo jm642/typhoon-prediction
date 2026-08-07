@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 卫星云图 + 气象雷达图层
- * - 云图(卫星)：NASA GIBS 向日葵-9 红外 XYZ 瓦片（见 api/imagery.ts），
+ * - 云图(卫星)：NASA GIBS 向日葵-9 XYZ 瓦片（见 api/imagery.ts，z≤6 红外 / z≥7 可见光，z>7 overzoom），
  *   单个 AMap.TileLayer 覆盖全图，time 参数 `default` 自动取最新时次。
  * - 雷达：NMC 2×2 分块 PNG，先 GET /imgs/radar/default 取最新时间戳，
  *   再创建 4 个 ImageLayer setMap（bounds 取 IMG_PARTS）。

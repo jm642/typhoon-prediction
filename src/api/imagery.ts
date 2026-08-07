@@ -2,9 +2,11 @@
  * 云图(卫星)/雷达数据层（spec 新增 § imagery）
  *
  * 卫星与雷达数据源不同：
- * - 卫星云图：NASA GIBS 向日葵-9 干净红外（Band13，见 docs/adr/0003）。
+ * - 卫星云图：NASA GIBS 向日葵-9（见 docs/adr/0003）。
  *   标准 WMTS REST XYZ 瓦片（Web Mercator），时间参数 `default` = 自动取最新可用产品，
- *   CORS `Access-Control-Allow-Origin: *`、无需密钥。图层瓦片矩阵最高 Level6（zoom 6）。
+ *   CORS `Access-Control-Allow-Origin: *`、无需密钥。
+ *   z≤6 用干净红外 Band13（昼夜可用，Level6）；z≥7 切 Band3 可见光 1km（Level7，夜间全黑），
+ *   z>7 无更高分辨率源，overzoom 复用 z7 瓦片（放大显示，云图不消失）。
  * - 雷达：CMA 台风网 2×2 分块 PNG（逆向 gis.js + 实测）：
  *   - GET {NMC}/imgs/radar/default
  *     → JSONP `imgs_radar_default({"time":"YYYYMMDDHHmm","formatTime":"…","state":0|1})`
@@ -17,11 +19,17 @@ const GIBS_BASE = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best'
 
 /** GIBS 图层标识：向日葵-9 干净红外（彩色增强，昼夜可用） */
 export const SAT_LAYER = 'Himawari_AHI_Band13_Clean_Infrared'
-/** GIBS 瓦片矩阵范围（zoom 6 为该图层最高分辨率） */
-export const SAT_ZOOMS: [number, number] = [2, 6]
+/** GIBS 图层标识：向日葵-9 Band3 可见光 1km（夜间全黑，z≥7 高倍放大用） */
+export const SAT_VISIBLE_LAYER = 'Himawari_AHI_Band3_Red_Visible_1km'
+/** 图层可见范围：与地图 zooms 一致；z>7 为 overzoom（复用 z7 瓦片，无新细节） */
+export const SAT_ZOOMS: [number, number] = [2, 18]
 
-/** 构造卫星云图瓦片 URL（z/y/x；time=default 取最新可用时次） */
+/** 构造卫星云图瓦片 URL（z/y/x；time=default 取最新可用时次；z≥7 切可见光，z>7 回落到父级 z7 瓦片） */
 export function buildSatelliteTileUrl(x: number, y: number, z: number): string {
+  if (z >= 7) {
+    const dz = z - 7
+    return `${GIBS_BASE}/${SAT_VISIBLE_LAYER}/default/default/GoogleMapsCompatible_Level7/7/${y >> dz}/${x >> dz}.png`
+  }
   return `${GIBS_BASE}/${SAT_LAYER}/default/default/GoogleMapsCompatible_Level6/${z}/${y}/${x}.png`
 }
 
