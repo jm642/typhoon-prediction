@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/typhoon-prediction/', // github仓库名称
+  base: './', // github仓库名称
   plugins: [vue()],
   server: {
     host: true,
