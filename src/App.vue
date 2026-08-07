@@ -34,6 +34,9 @@ const showCloud = ref(false)
 const showRadar = ref(false)
 const showWind = ref(false)
 
+// 图例折叠（仅移动端生效，桌面端按钮隐藏）
+const legendOpen = ref(false)
+
 function fmt(ms: number): string {
   const d = new Date(ms)
   const p = (n: number) => String(n).padStart(2, '0')
@@ -111,58 +114,77 @@ onUnmounted(() => {
     <ImageryLayer :amap="amap" :map="map" :show-cloud="showCloud" :show-radar="showRadar" />
     <WindFieldLayer :amap="amap" :map="map" :enabled="showWind" />
 
-    <!-- 左上：品牌 + 台风列表 -->
-    <div class="glass top-left">
-      <div class="brand">🌀 实时台风路径</div>
-      <div class="sub">活跃台风 {{ list.length }} 个</div>
-      <TyphoonList :list="list" :active-id="activeId" :loading="loading" @select="selectTyphoon" />
-    </div>
-
-    <!-- 底部左：实况卡（选中某台风时才显示） -->
-    <div v-if="typhoon" class="glass bottom-left">
-      <StatusCard :typhoon="typhoon" />
-    </div>
-
-    <!-- 底部右：强度曲线（选中某台风时才显示） -->
-    <div v-if="typhoon" class="glass bottom-right">
-      <IntensityChart :typhoon="typhoon" />
-    </div>
-
-    <!-- 顶部中：更新时间 + 刷新 -->
-    <div class="glass top-center">
-      <span class="tc-updated">{{ updatedAt ? `更新于 ${fmt(updatedAt.getTime())}` : '加载中…' }}</span>
-      <button class="tc-refresh" :disabled="refreshing" @click="refresh">
-        {{ refreshing ? '刷新中…' : '↻ 刷新' }}
-      </button>
-    </div>
-
-    <!-- 右上：图例（沿海警戒线 + 强度等级 + 风圈等级） -->
-    <div class="glass legend">
-      <div class="legend-title">沿海警戒线</div>
-      <div class="legend-item"><span class="legend-line solid"></span>24 小时</div>
-      <div class="legend-item"><span class="legend-line dashed"></span>48 小时</div>
-
-      <div class="legend-title legend-gap">强度等级</div>
-      <div v-for="l in LEVELS" :key="l.code" class="legend-item">
-        <span class="legend-dot" :style="{ background: l.color }"></span>{{ l.name }}
+    <!-- UI 浮层容器：桌面端子项仍为绝对定位（不受 flex 影响），
+         手机端媒体查询中改为纵向 flex 流式排列 -->
+    <div class="ui-layer">
+      <!-- 左上：品牌 + 台风列表 -->
+      <div class="glass top-left">
+        <div class="brand">🌀 实时台风路径</div>
+        <div class="sub">活跃台风 {{ list.length }} 个</div>
+        <TyphoonList :list="list" :active-id="activeId" :loading="loading" @select="selectTyphoon" />
       </div>
 
-      <div class="legend-title legend-gap">风圈等级</div>
-      <div v-for="l in WIND_CIRCLE_LEVELS" :key="l.code" class="legend-item">
-        <span class="legend-dot" :style="{ background: l.stroke }"></span>{{ l.name }}
+      <!-- 底部左：实况卡（选中某台风时才显示） -->
+      <div v-if="typhoon" class="glass bottom-left">
+        <StatusCard :typhoon="typhoon" />
       </div>
 
-      <div class="legend-title legend-gap">图层开关</div>
-      <div class="layer-toggles">
+      <!-- 底部右：强度曲线（选中某台风时才显示） -->
+      <div v-if="typhoon" class="glass bottom-right">
+        <IntensityChart :typhoon="typhoon" />
+      </div>
+
+      <!-- 顶部中：更新时间 + 刷新 -->
+      <div class="glass top-center">
+        <span class="tc-updated">{{ updatedAt ? `更新于 ${fmt(updatedAt.getTime())}` : '加载中…' }}</span>
+        <button class="tc-refresh" :disabled="refreshing" @click="refresh">
+          {{ refreshing ? '刷新中…' : '↻ 刷新' }}
+        </button>
+      </div>
+
+      <!-- 仅手机端：独立图层开关（桌面端隐藏，开关保留在图例内） -->
+      <div class="glass layers-bar">
         <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
         <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
-        <button
-          class="layer-chip"
-          :class="{ on: showWind }"
-          @click="showWind = !showWind"
-        >
-          🌬 全球风场
+        <button class="layer-chip" :class="{ on: showWind }" @click="showWind = !showWind">🌬 全球风场</button>
+      </div>
+
+      <!-- 右上：图例（沿海警戒线 + 强度等级 + 风圈等级；手机端折叠） -->
+      <div class="glass legend" :class="{ open: legendOpen }">
+        <button class="legend-toggle" @click="legendOpen = !legendOpen">
+          {{ legendOpen ? '✕ 收起图例' : '☰ 图例' }}
         </button>
+        <div class="legend-body">
+          <div class="legend-title">沿海警戒线</div>
+          <div class="legend-item"><span class="legend-line solid"></span>24 小时</div>
+          <div class="legend-item"><span class="legend-line dashed"></span>48 小时</div>
+
+          <div class="legend-title legend-gap">强度等级</div>
+          <div v-for="l in LEVELS" :key="l.code" class="legend-item">
+            <span class="legend-dot" :style="{ background: l.color }"></span>{{ l.name }}
+          </div>
+
+          <div class="legend-title legend-gap">风圈等级</div>
+          <div v-for="l in WIND_CIRCLE_LEVELS" :key="l.code" class="legend-item">
+            <span class="legend-dot" :style="{ background: l.stroke }"></span>{{ l.name }}
+          </div>
+
+          <!-- 桌面端在此显示图层开关；手机端隐藏（由独立 .layers-bar 面板承担） -->
+          <div class="legend-layers">
+            <div class="legend-title legend-gap">图层开关</div>
+            <div class="layer-toggles">
+              <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
+              <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
+              <button
+                class="layer-chip"
+                :class="{ on: showWind }"
+                @click="showWind = !showWind"
+              >
+                🌬 全球风场
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

@@ -37,6 +37,19 @@ body {
   background: #070c17;
 }
 
+/* ============ UI 浮层容器 ============
+   桌面端：子面板为绝对定位（不参与 flex 流），坐标与 .app 一致；
+   手机端（见底部媒体查询）：子面板改 static，纵向 flex 排列。
+   pointer-events:none 让面板间隙的手势穿透到地图，面板自身 auto。 */
+.ui-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
 /* ============ 玻璃拟态浮层 ============ */
 .glass {
   background: var(--glass-bg);
@@ -49,6 +62,7 @@ body {
   z-index: 10;
   padding: 14px 16px;
   color: var(--text-main);
+  pointer-events: auto;
 }
 
 .top-left {
@@ -311,7 +325,25 @@ body {
   margin-top: 8px;
 }
 
+/* 图例折叠按钮：桌面端隐藏，仅手机端显示（媒体查询中覆盖 display） */
+.legend-toggle {
+  display: none;
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 180, 220, 0.25);
+  background: rgba(148, 180, 220, 0.08);
+  color: #c7d6ea;
+  font-size: 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
 /* ============ 图层开关（云图/雷达/风场） ============ */
+/* 手机端独立的图层开关面板；桌面端隐藏（开关在图例内） */
+.layers-bar {
+  display: none;
+}
+
 .layer-toggles {
   display: flex;
   flex-wrap: wrap;
@@ -479,4 +511,93 @@ body {
 .amap-info-close {
   top: 6px;
   right: 6px;
+}
+
+/* ============ 手机端布局（≤768px）：面板纵向 flex 排列 ============
+   顺序：列表(1) → 更新时间(2) → 图层开关(3) → 图例(4) →（margin-top:auto 留白）
+   → 实况卡(5) → 强度曲线(6)。桌面端绝对定位规则不受影响。 */
+@media (max-width: 768px) {
+  .ui-layer {
+    gap: 8px;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .ui-layer .glass {
+    position: static;
+  }
+
+  .top-left {
+    order: 1;
+    width: auto;
+    max-height: 24vh;
+  }
+
+  .top-center {
+    order: 2;
+    align-self: center;
+    transform: none;
+  }
+
+  .layers-bar {
+    order: 3;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 8px 10px;
+  }
+
+  .legend {
+    order: 4;
+    align-self: flex-start;
+    padding: 8px 12px;
+  }
+
+  .legend-toggle {
+    display: block;
+  }
+
+  .legend-body {
+    display: none;
+    margin-top: 8px;
+  }
+
+  .legend.open .legend-body {
+    display: block;
+  }
+
+  /* 图层开关已由独立 .layers-bar 承担，隐藏图例内的重复实例 */
+  .legend-layers {
+    display: none;
+  }
+
+  .bottom-left {
+    order: 5;
+    width: auto;
+    margin-top: auto; /* 推到底部，中部留白给地图 */
+    max-height: 28vh;
+    overflow-y: auto;
+  }
+
+  .bottom-right {
+    order: 6;
+  }
+
+  .chart-body {
+    height: 120px;
+  }
+
+  .toast {
+    top: auto;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .tc-refresh,
+  .layer-chip,
+  .t-item {
+    touch-action: manipulation;
+  }
 }
