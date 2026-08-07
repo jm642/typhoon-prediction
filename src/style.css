@@ -1,0 +1,482 @@
+/* ============ 全局暗色气象主题（spec §7 变体 B） ============ */
+:root {
+  --glass-bg: rgba(10, 18, 32, 0.72);
+  --glass-border: rgba(148, 180, 220, 0.18);
+  --text-main: #dbe4f0;
+  --text-dim: #7d93b5;
+  --accent: #38bdf8;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  color: var(--text-main);
+  background: #0b1220;
+  overflow: hidden;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+}
+
+.map-container {
+  position: absolute;
+  inset: 0;
+  background: #070c17;
+}
+
+/* ============ 玻璃拟态浮层 ============ */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  position: absolute;
+  z-index: 10;
+  padding: 14px 16px;
+  color: var(--text-main);
+}
+
+.top-left {
+  top: 18px;
+  left: 18px;
+  width: 280px;
+  max-height: 42vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-center {
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #c7d6ea;
+}
+
+.bottom-left {
+  left: 18px;
+  bottom: 18px;
+  width: 340px;
+}
+
+.bottom-right {
+  right: 18px;
+  bottom: 18px;
+  left: 380px;
+  min-width: 0;
+}
+
+.brand {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+/* ============ 台风列表 ============ */
+.t-list {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.t-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+}
+
+.t-item:hover {
+  background: rgba(148, 180, 220, 0.1);
+}
+
+.t-item.sel {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.t-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.t-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.t-code {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.t-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 8px 4px;
+}
+
+/* ============ 实况卡 ============ */
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.s-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.s-name {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.s-en {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.s-badge {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.s-kv {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.s-cell {
+  background: rgba(148, 180, 220, 0.06);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.s-cell span {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.s-cell b {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e7eef9;
+  font-variant-numeric: tabular-nums;
+}
+
+.s-cell small {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.s-empty {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 8px 4px;
+}
+
+/* ============ 强度曲线 ============ */
+.chart-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.chart-body {
+  height: 150px;
+  width: 100%;
+}
+
+/* ============ 顶部时间 / 刷新 ============ */
+.tc-updated {
+  font-variant-numeric: tabular-nums;
+}
+
+.tc-refresh {
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 180, 220, 0.25);
+  background: rgba(148, 180, 220, 0.08);
+  color: #c7d6ea;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tc-refresh:hover:not(:disabled) {
+  background: rgba(148, 180, 220, 0.16);
+}
+
+.tc-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ============ 沿海警戒线图例 ============ */
+.legend {
+  top: 18px;
+  right: 18px;
+  padding: 10px 14px;
+}
+
+.legend-title {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #c7d6ea;
+  padding: 2px 0;
+}
+
+.legend-note {
+  margin-top: 4px;
+  font-size: 9px;
+  color: #64748b;
+}
+
+.legend-line {
+  width: 22px;
+  border-top: 2px solid #ffff00;
+}
+
+.legend-line.dashed {
+  border-top-style: dashed;
+}
+
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.legend-gap {
+  margin-top: 8px;
+}
+
+/* ============ 图层开关（云图/雷达/风场） ============ */
+.layer-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.layer-chip {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 180, 220, 0.25);
+  background: rgba(148, 180, 220, 0.08);
+  color: #c7d6ea;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.layer-chip:hover:not(:disabled) {
+  background: rgba(148, 180, 220, 0.16);
+}
+
+.layer-chip.on {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #e6f6ff;
+}
+
+.layer-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ============ 风场 canvas ============
+   粒子层 .wind-canvas 由 WindFieldLayer start() 插入 .amap-layers 图层栈
+   （inline zIndex 60：填色 50 之上、台风自绘矢量层 110 之下），
+   此处 z-index 仅为插入前初始值；pointer-events:none 不拦截地图交互。
+   背景填色层由高德 CustomLayer 接管（zIndex 50，此处无 CSS，由高德管）。 */
+.wind-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* ============ 状态提示 ============ */
+.toast {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 18px;
+  border-radius: 20px;
+  background: rgba(10, 18, 32, 0.8);
+  border: 1px solid rgba(148, 180, 220, 0.2);
+  font-size: 12px;
+  color: #c7d6ea;
+  backdrop-filter: blur(8px);
+}
+
+.toast-error {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+/* ============ 当前中心脉冲标记 ============ */
+.tc-pulse {
+  position: relative;
+  width: 22px;
+  height: 22px;
+}
+
+.tc-pulse span {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #fbbf24;
+  opacity: 0.9;
+}
+
+.tc-pulse span:nth-child(2) {
+  inset: 5px;
+  background: #fbbf24;
+  border: none;
+}
+
+.tc-pulse span:nth-child(1) {
+  animation: tc-pulse 2s ease-out infinite;
+}
+
+@keyframes tc-pulse {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* ============ 台风当前中心 + 最新位置文案 ============ */
+.tc-center {
+  position: relative;
+  width: 22px;
+  height: 22px;
+}
+
+.tc-latest {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(13, 21, 38, 0.9);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* ============ 自定义 InfoWindow ============ */
+.tc-info {
+  min-width: 168px;
+  background: rgba(13, 21, 38, 0.95);
+  border: 1px solid rgba(148, 180, 220, 0.3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.tc-info-lv {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 6px;
+}
+
+.tc-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.tc-info-row span {
+  color: var(--text-dim);
+}
+
+.tc-info-row b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 高德自带 InfoWindow 关闭按钮定位 */
+.amap-info-close {
+  top: 6px;
+  right: 6px;
+}
