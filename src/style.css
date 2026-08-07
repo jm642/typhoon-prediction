@@ -541,8 +541,8 @@ body {
   .m-topbar {
     position: absolute;
     top: max(10px, env(safe-area-inset-top));
-    left: max(10px, env(safe-area-inset-right));
-    right: max(10px, env(safe-area-inset-left));
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
     display: flex;
     align-items: center;
     gap: 10px;
@@ -672,6 +672,6 @@ body {
 
   .toast {
     top: auto;
-    bottom: calc(12px + env(safe-area-inset-bottom));
+    bottom: calc(12px + env(safe-area-inset-bottom) + 108px);
   }
 }
