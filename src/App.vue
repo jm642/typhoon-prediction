@@ -37,20 +37,35 @@ const showWind = ref(false)
 // 图例折叠（仅移动端生效，桌面端按钮隐藏）
 const legendOpen = ref(false)
 
-// 移动端：抽屉详情展开态（false=收起信息条）；图例弹出卡开关
+// 移动端：抽屉详情展开态（false=收起信息条）；图例弹出卡开关与卡片 DOM
 const detailExpanded = ref(false)
 const mobileLegendOpen = ref(false)
+const legendPopEl = ref<HTMLElement | null>(null)
 
-// 移动端：选中台风时重置为收起态；取消选中时清空图例弹出
+// 移动端：选中台风时重置为收起态并关闭图例弹出；取消选中时清空图例弹出
 function handleSelect(id: string) {
   selectTyphoon(id)
   detailExpanded.value = false
+  mobileLegendOpen.value = false
 }
 function handleClear() {
   activeId.value = null
   typhoon.value = null
   detailExpanded.value = false
   mobileLegendOpen.value = false
+}
+
+// 移动端：抽屉信息条点击 展开/收起，同时关闭图例弹出
+function toggleDetail() {
+  detailExpanded.value = !detailExpanded.value
+  mobileLegendOpen.value = false
+}
+
+// 移动端：点击图例弹出卡外部任意处关闭
+function onDocClick(e: MouseEvent) {
+  if (mobileLegendOpen.value && legendPopEl.value && !legendPopEl.value.contains(e.target as Node)) {
+    mobileLegendOpen.value = false
+  }
 }
 
 // 取台风最后一个路径点的强度码/风速（供移动端抽屉信息条展示）
@@ -122,10 +137,12 @@ function handleVisibility() {
 onMounted(() => {
   loadList()
   document.addEventListener('visibilitychange', handleVisibility)
+  document.addEventListener('click', onDocClick)
 })
 
 onUnmounted(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
+  document.removeEventListener('click', onDocClick)
 })
 </script>
 
@@ -208,7 +225,7 @@ onUnmounted(() => {
         <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
         <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
         <button class="layer-chip" :class="{ on: showWind }" @click="showWind = !showWind">🌬 风场</button>
-        <button class="m-legend-btn" @click="mobileLegendOpen = !mobileLegendOpen">☰ 图例</button>
+        <button class="m-legend-btn" @click.stop="mobileLegendOpen = !mobileLegendOpen">☰ 图例</button>
       </div>
 
       <!-- 底部抽屉：列表态 / 详情收起态 / 详情展开态 -->
@@ -224,7 +241,7 @@ onUnmounted(() => {
 
         <!-- 详情态（收起/展开） -->
         <template v-else-if="typhoon">
-          <button class="m-info-bar" @click="detailExpanded = !detailExpanded">
+          <button class="m-info-bar" @click="toggleDetail">
             <span class="m-back" @click.stop="handleClear">☰全部</span>
             <span class="m-info-name">{{ typhoon.nameCn ?? typhoon.nameEn }}</span>
             <span
@@ -242,7 +259,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 图例弹出卡 -->
-      <div v-if="mobileLegendOpen" class="m-legend-pop glass" @click.stop>
+      <div v-if="mobileLegendOpen" ref="legendPopEl" class="m-legend-pop glass">
         <LegendContent />
       </div>
     </div>
