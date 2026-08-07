@@ -14,8 +14,8 @@ import IntensityChart from './components/IntensityChart.vue'
 import TyphoonLayer from './components/TyphoonLayer.vue'
 import ImageryLayer from './components/ImageryLayer.vue'
 import WindFieldLayer from './components/WindFieldLayer.vue'
-import { LEVELS } from './constants/levels'
-import { WIND_CIRCLE_LEVELS } from './constants/windCircles'
+import LegendContent from './components/LegendContent.vue'
+import { levelForCode } from './constants/levels'
 
 const mapContainer = ref<HTMLElement | null>(null)
 const { amap, map, ready, error } = useAmapMap(mapContainer)
@@ -36,6 +36,30 @@ const showWind = ref(false)
 
 // 图例折叠（仅移动端生效，桌面端按钮隐藏）
 const legendOpen = ref(false)
+
+// 移动端：抽屉详情展开态（false=收起信息条）；图例弹出卡开关
+const detailExpanded = ref(false)
+const mobileLegendOpen = ref(false)
+
+// 移动端：选中台风时重置为收起态；取消选中时清空图例弹出
+function handleSelect(id: string) {
+  selectTyphoon(id)
+  detailExpanded.value = false
+}
+function handleClear() {
+  activeId.value = null
+  typhoon.value = null
+  detailExpanded.value = false
+  mobileLegendOpen.value = false
+}
+
+// 取台风最后一个路径点的强度码/风速（供移动端抽屉信息条展示）
+function lastLevel(t: NormalizedTyphoon): string {
+  return t.path[t.path.length - 1]?.level ?? ''
+}
+function lastWind(t: NormalizedTyphoon): number {
+  return t.path[t.path.length - 1]?.wind ?? 0
+}
 
 function fmt(ms: number): string {
   const d = new Date(ms)
@@ -154,21 +178,8 @@ onUnmounted(() => {
         <button class="legend-toggle" @click="legendOpen = !legendOpen">
           {{ legendOpen ? '✕ 收起图例' : '☰ 图例' }}
         </button>
-        <div class="legend-body">
-          <div class="legend-title">沿海警戒线</div>
-          <div class="legend-item"><span class="legend-line solid"></span>24 小时</div>
-          <div class="legend-item"><span class="legend-line dashed"></span>48 小时</div>
-
-          <div class="legend-title legend-gap">强度等级</div>
-          <div v-for="l in LEVELS" :key="l.code" class="legend-item">
-            <span class="legend-dot" :style="{ background: l.color }"></span>{{ l.name }}
-          </div>
-
-          <div class="legend-title legend-gap">风圈等级</div>
-          <div v-for="l in WIND_CIRCLE_LEVELS" :key="l.code" class="legend-item">
-            <span class="legend-dot" :style="{ background: l.stroke }"></span>{{ l.name }}
-          </div>
-
+        <div class="legend-body-wrap">
+          <LegendContent />
           <!-- 桌面端在此显示图层开关；手机端隐藏（由独立 .layers-bar 面板承担） -->
           <div class="legend-layers">
             <div class="legend-title legend-gap">图层开关</div>
@@ -185,6 +196,61 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- 移动端 UI（≤768px 显示；桌面端由 CSS 隐藏） -->
+    <div class="m-ui">
+      <!-- 顶部细条：品牌 + 更新时间 + 刷新 -->
+      <div class="m-topbar glass">
+        <span class="m-brand">🌀 实时台风</span>
+        <span class="m-updated">{{ updatedAt ? `更新于 ${fmt(updatedAt.getTime())}` : '加载中…' }}</span>
+        <button class="m-refresh" :disabled="refreshing" @click="refresh">
+          {{ refreshing ? '刷新中…' : '↻' }}
+        </button>
+      </div>
+
+      <!-- 底部工具条：图层开关 + 图例 -->
+      <div class="m-toolbar glass">
+        <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
+        <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
+        <button class="layer-chip" :class="{ on: showWind }" @click="showWind = !showWind">🌬 风场</button>
+        <button class="m-legend-btn" @click="mobileLegendOpen = !mobileLegendOpen">☰ 图例</button>
+      </div>
+
+      <!-- 底部抽屉：列表态 / 详情收起态 / 详情展开态 -->
+      <div class="m-drawer glass" :class="{ 'is-expanded': detailExpanded }">
+        <!-- 列表态 -->
+        <template v-if="!activeId">
+          <div class="m-drawer-head">
+            <span>活跃台风 {{ list.length }} 个</span>
+            <span class="m-drawer-caret">▾</span>
+          </div>
+          <TyphoonList :list="list" :active-id="activeId" :loading="loading" @select="handleSelect" />
+        </template>
+
+        <!-- 详情态（收起/展开） -->
+        <template v-else-if="typhoon">
+          <button class="m-info-bar" @click="detailExpanded = !detailExpanded">
+            <span class="m-back" @click.stop="handleClear">☰全部</span>
+            <span class="m-info-name">{{ typhoon.nameCn ?? typhoon.nameEn }}</span>
+            <span
+              class="m-info-badge"
+              :style="{ background: levelForCode(lastLevel(typhoon)).color }"
+            >{{ levelForCode(lastLevel(typhoon)).name }}</span>
+            <span class="m-info-wind">{{ lastWind(typhoon) }} m/s</span>
+            <span class="m-drawer-caret">{{ detailExpanded ? '▾' : '▴' }}</span>
+          </button>
+          <div v-show="detailExpanded" class="m-drawer-body">
+            <StatusCard :typhoon="typhoon" />
+            <IntensityChart :typhoon="typhoon" />
+          </div>
+        </template>
+      </div>
+
+      <!-- 图例弹出卡 -->
+      <div v-if="mobileLegendOpen" class="m-legend-pop glass" @click.stop>
+        <LegendContent />
       </div>
     </div>
 
