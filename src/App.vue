@@ -166,13 +166,6 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- 仅手机端：独立图层开关（桌面端隐藏，开关保留在图例内） -->
-      <div class="glass layers-bar">
-        <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
-        <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
-        <button class="layer-chip" :class="{ on: showWind }" @click="showWind = !showWind">🌬 全球风场</button>
-      </div>
-
       <!-- 右上：图例（沿海警戒线 + 强度等级 + 风圈等级；手机端折叠） -->
       <div class="glass legend" :class="{ open: legendOpen }">
         <button class="legend-toggle" @click="legendOpen = !legendOpen">
@@ -180,7 +173,7 @@ onUnmounted(() => {
         </button>
         <div class="legend-body-wrap">
           <LegendContent />
-          <!-- 桌面端在此显示图层开关；手机端隐藏（由独立 .layers-bar 面板承担） -->
+          <!-- 桌面端在此显示图层开关；手机端整层隐藏，图层开关由 .m-toolbar 承担 -->
           <div class="legend-layers">
             <div class="legend-title legend-gap">图层开关</div>
             <div class="layer-toggles">

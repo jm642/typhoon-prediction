@@ -339,11 +339,6 @@ body {
 }
 
 /* ============ 图层开关（云图/雷达/风场） ============ */
-/* 手机端独立的图层开关面板；桌面端隐藏（开关在图例内） */
-.layers-bar {
-  display: none;
-}
-
 .layer-toggles {
   display: flex;
   flex-wrap: wrap;
@@ -513,91 +508,170 @@ body {
   right: 6px;
 }
 
-/* ============ 手机端布局（≤768px）：面板纵向 flex 排列 ============
-   顺序：列表(1) → 更新时间(2) → 图层开关(3) → 图例(4) →（margin-top:auto 留白）
-   → 实况卡(5) → 强度曲线(6)。桌面端绝对定位规则不受影响。 */
+/* ============ 移动端容器：桌面端隐藏，仅 ≤768px 显示 ============
+   桌面端 .m-ui 不显示（由桌面 .ui-layer 面板接管）；手机端反之。 */
+.m-ui {
+  display: none;
+}
+
+/* ============ 手机端布局（≤768px）：底部抽屉模型 ============
+   桌面 .ui-layer 整层隐藏；移动容器 .m-ui 接管：
+   顶部细条(.m-topbar) + 底部工具条(.m-toolbar) + 底部抽屉(.m-drawer，
+   列表/详情收起/详情展开三态) + 图例弹出卡(.m-legend-pop)。
+   .m-ui 自身 pointer-events:none 让地图手势穿透，子面板 .glass 恢复 auto。 */
 @media (max-width: 768px) {
+  /* 桌面端面板整体隐藏，由移动端容器接管 */
   .ui-layer {
-    gap: 8px;
-    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
-      max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    display: none;
   }
 
-  .ui-layer .glass {
-    position: static;
+  .m-ui {
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    pointer-events: none;
+    display: block;
   }
 
-  .top-left {
-    order: 1;
-    width: auto;
-    max-height: 24vh;
+  .m-ui .glass {
+    pointer-events: auto;
   }
 
-  .top-center {
-    order: 2;
-    align-self: center;
-    transform: none;
-  }
-
-  .layers-bar {
-    order: 3;
+  /* 顶部细条 */
+  .m-topbar {
+    position: absolute;
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-right));
+    right: max(10px, env(safe-area-inset-left));
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-self: flex-start;
-    padding: 8px 10px;
-  }
-
-  .legend {
-    order: 4;
-    align-self: flex-start;
+    align-items: center;
+    gap: 10px;
     padding: 8px 12px;
+    font-size: 12px;
+  }
+  .m-brand { font-weight: 700; font-size: 14px; }
+  .m-updated { color: var(--text-dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-refresh {
+    padding: 4px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 180, 220, 0.25);
+    background: rgba(148, 180, 220, 0.08);
+    color: #c7d6ea;
+    font-size: 12px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .m-refresh:disabled { opacity: 0.6; }
+
+  /* 底部工具条 */
+  .m-toolbar {
+    position: absolute;
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 52px); /* 让出抽屉高度 */
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 12px;
+  }
+  .m-toolbar .layer-chip { padding: 5px 10px; }
+  .m-legend-btn {
+    margin-left: auto;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 180, 220, 0.25);
+    background: rgba(148, 180, 220, 0.08);
+    color: #c7d6ea;
+    font-size: 11px;
+    cursor: pointer;
+    touch-action: manipulation;
   }
 
-  .legend-toggle {
-    display: block;
-  }
-
-  .legend-body {
-    display: none;
-    margin-top: 8px;
-  }
-
-  .legend.open .legend-body {
-    display: block;
-  }
-
-  /* 图层开关已由独立 .layers-bar 承担，隐藏图例内的重复实例 */
-  .legend-layers {
-    display: none;
-  }
-
-  .bottom-left {
-    order: 5;
-    width: auto;
-    margin-top: auto; /* 推到底部，中部留白给地图 */
-    max-height: 28vh;
+  /* 底部抽屉 */
+  .m-drawer {
+    position: absolute;
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(8px, env(safe-area-inset-bottom));
+    max-height: 24vh;
     overflow-y: auto;
+    padding: 10px 12px;
+    border-radius: 14px;
+    transition: max-height 0.25s ease;
+  }
+  .m-drawer.is-expanded {
+    max-height: 55vh;
+  }
+  .m-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 2px 0 6px;
+  }
+  .m-drawer-caret { font-size: 10px; color: var(--text-dim); }
+  .m-info-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text-main);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 0;
+    touch-action: manipulation;
+  }
+  .m-back {
+    font-size: 12px;
+    color: var(--accent);
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    flex: 0 0 auto;
+  }
+  .m-info-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-info-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    flex: 0 0 auto;
+  }
+  .m-info-wind { margin-left: auto; font-size: 12px; color: #c7d6ea; font-variant-numeric: tabular-nums; }
+  .m-drawer-body {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .m-drawer-body .chart-body { height: 120px; }
+
+  /* 图例弹出卡 */
+  .m-legend-pop {
+    position: absolute;
+    right: max(10px, env(safe-area-inset-right));
+    bottom: calc(max(8px, env(safe-area-inset-bottom)) + 108px); /* 工具条上方 */
+    width: 200px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    z-index: 13;
   }
 
-  .bottom-right {
-    order: 6;
-  }
-
-  .chart-body {
-    height: 120px;
+  /* 底部工具条与抽屉的 chips 可点 */
+  .m-toolbar .layer-chip,
+  .m-legend-btn,
+  .m-refresh,
+  .m-info-bar {
+    touch-action: manipulation;
   }
 
   .toast {
     top: auto;
     bottom: calc(12px + env(safe-area-inset-bottom));
-  }
-
-  .tc-refresh,
-  .layer-chip,
-  .t-item {
-    touch-action: manipulation;
   }
 }
