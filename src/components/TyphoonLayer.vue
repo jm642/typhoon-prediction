@@ -2,7 +2,7 @@
 /**
  * 台风自绘图层（spec §6）
  * 实测路径(实线)、预报路径(虚线)、多档四象限风圈(七/十/十二级，花瓣多边形嵌套)、
- * 路径点/预报点、当前中心(脉冲)、点选 InfoWindow。
+ * 路径点/预报点、当前中心(脉冲)、登陆点标注(由轨迹推断，见 src/lib/landfall.ts)、点选 InfoWindow。
  *
  * 重要：高德 2.0 把矢量覆盖物(Polyline/Polygon/CircleMarker)与底图合成在同一张
  * WebGL canvas（.amap-layers 内 static 元素，永远垫底）里绘制，JS 侧
@@ -17,6 +17,7 @@ import type { NormalizedTyphoon, TyphoonPoint, WindCircle } from '../types/typho
 import { levelForCode } from '../constants/levels'
 import { WIND_CIRCLE_LEVELS } from '../constants/windCircles'
 import { GUARD_LINE_24H, GUARD_LINE_48H } from '../data/guardLines'
+import { detectLandfalls, type LandfallPoint } from '../lib/landfall'
 
 const props = defineProps<{
   amap: any
@@ -29,6 +30,10 @@ let canvas: HTMLCanvasElement | null = null
 let ctx: CanvasRenderingContext2D | null = null
 let vecLayer: any = null
 let centerMarkers: any[] = []
+// 登陆点 DOM marker（z=115：自绘矢量层 110 之上、当前中心 120 之下）
+let landfallMarkers: any[] = []
+// 登陆点推断结果缓存（按台风 id，数据变化时重建）
+const landfallCache = new Map<string, LandfallPoint[]>()
 // 每帧重建：路径点/预报点的容器像素位置，供 map click 命中弹详情
 let dotHits: { x: number; y: number; point: TyphoonPoint }[] = []
 
@@ -86,9 +91,28 @@ function fmtLatest(ms: number): string {
   return `最新位置：${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}时${min === 0 ? '' : p(min) + '分'}`
 }
 
-function openInfo(point: TyphoonPoint) {
+/** 打开自定义 InfoWindow（点击弹窗内容不关闭，防止 map click 误关） */
+function showInfo(content: string, lng: number, lat: number) {
   const { amap, map } = props
   if (!amap || !map) return
+  closeInfo()
+  const iw = new amap.InfoWindow({
+    content,
+    isCustom: true,
+    offset: new amap.Pixel(0, -14),
+    autoMove: true,
+  })
+  iw.open(map, [lng, lat])
+  infoWindow = iw
+  // 点击弹窗内容不关闭：阻止其 click 冒泡到地图（否则 map click 会误关弹窗）
+  requestAnimationFrame(() => {
+    const wrap = map.getContainer?.()
+    const contentEl = wrap?.querySelector?.('.amap-info-content')
+    contentEl?.addEventListener?.('click', (e: Event) => e.stopPropagation())
+  })
+}
+
+function openInfo(point: TyphoonPoint) {
   const lv = levelForCode(point.level)
   const content = `
     <div class="tc-info">
@@ -99,21 +123,18 @@ function openInfo(point: TyphoonPoint) {
       <div class="tc-info-row"><span>气压</span><b>${point.pressure} hPa</b></div>
       ${point.forecast ? `<div class="tc-info-row"><span>预报</span><b>+${point.forecast.hours}h</b></div>` : ''}
     </div>`
-  closeInfo()
-  const iw = new amap.InfoWindow({
-    content,
-    isCustom: true,
-    offset: new amap.Pixel(0, -14),
-    autoMove: true,
-  })
-  iw.open(map, [point.lng, point.lat])
-  infoWindow = iw
-  // 点击弹窗内容不关闭：阻止其 click 冒泡到地图（否则 map click 会误关弹窗）
-  requestAnimationFrame(() => {
-    const wrap = map.getContainer?.()
-    const contentEl = wrap?.querySelector?.('.amap-info-content')
-    contentEl?.addEventListener?.('click', (e: Event) => e.stopPropagation())
-  })
+  showInfo(content, point.lng, point.lat)
+}
+
+/** 登陆点详情弹窗 */
+function openLandfallInfo(lf: LandfallPoint) {
+  const content = `
+    <div class="tc-info">
+      <div class="tc-info-lv" style="background:#ef4444">登陆点</div>
+      <div class="tc-info-row"><span>时间</span><b>${fmtTime(lf.time)}</b></div>
+      <div class="tc-info-row"><span>位置</span><b>${lf.lat.toFixed(1)}°N ${lf.lng.toFixed(1)}°E</b></div>
+    </div>`
+  showInfo(content, lf.lng, lf.lat)
 }
 let infoWindow: any = null
 function closeInfo() {
@@ -280,10 +301,55 @@ function syncMarkers() {
     centerMarkers.push(marker)
   }
   map.add(centerMarkers)
-  // 仅选中某台风时聚焦其路径范围（避开左上/底部玻璃浮层）；无选中时保持初始视图
-  if (selectedId && toDraw.some((t) => t.path.length || t.forecast.length)) {
-    map.setFitView(null, false, [130, 60, 170, 230], 6)
+  // 仅选中某台风时聚焦其路径范围（避开左上/底部玻璃浮层）；无选中时保持初始视图。
+  // 注意：轨迹是自绘 canvas，不是高德覆盖物，setFitView(null) 感知不到其范围；
+  // 故按「路径 + 预报 + 登陆点」数据显式算包围盒再 setBounds 聚焦。
+  if (selectedId) {
+    for (const t of toDraw) {
+      if (!t.path.length && !t.forecast.length) continue
+      let minLng = Infinity
+      let minLat = Infinity
+      let maxLng = -Infinity
+      let maxLat = -Infinity
+      for (const p of [...t.path, ...t.forecast]) {
+        if (p.lng < minLng) minLng = p.lng
+        if (p.lng > maxLng) maxLng = p.lng
+        if (p.lat < minLat) minLat = p.lat
+        if (p.lat > maxLat) maxLat = p.lat
+      }
+      for (const lf of landfallCache.get(t.id) ?? []) {
+        if (lf.lng < minLng) minLng = lf.lng
+        if (lf.lng > maxLng) maxLng = lf.lng
+        if (lf.lat < minLat) minLat = lf.lat
+        if (lf.lat > maxLat) maxLat = lf.lat
+      }
+      if (minLng === Infinity) continue
+      map.setBounds(new amap.Bounds([minLng, minLat], [maxLng, maxLat]), false, [130, 60, 170, 230], 6)
+    }
   }
+}
+
+// 登陆点标注（DOM marker z=115，位于自绘矢量层之上、当前中心之下）
+function syncLandfallMarkers() {
+  const { amap, map, typhoons, selectedId } = props
+  if (map && landfallMarkers.length) map.remove(landfallMarkers)
+  landfallMarkers = []
+  if (!amap || !map) return
+  const toDraw = selectedId ? typhoons.filter((t) => t.id === selectedId) : typhoons
+  for (const t of toDraw) {
+    const lfs = landfallCache.get(t.id) ?? []
+    for (const lf of lfs) {
+      const marker = new amap.Marker({
+        position: [lf.lng, lf.lat],
+        content: `<div class="tc-landfall"><span class="tc-landfall-badge">⚓ 登陆</span><span class="tc-landfall-time">${fmtTime(lf.time)}</span></div>`,
+        anchor: 'center',
+        zIndex: 115,
+      })
+      marker.on('click', () => openLandfallInfo(lf))
+      landfallMarkers.push(marker)
+    }
+  }
+  if (landfallMarkers.length) map.add(landfallMarkers)
 }
 
 function ensureLayer() {
@@ -306,6 +372,7 @@ function ensureLayer() {
   })
   map.on('click', onMapClick)
   syncMarkers()
+  syncLandfallMarkers()
 }
 
 function teardown() {
@@ -313,9 +380,12 @@ function teardown() {
   if (map) {
     map.off('click', onMapClick)
     if (centerMarkers.length) map.remove(centerMarkers)
+    if (landfallMarkers.length) map.remove(landfallMarkers)
     if (vecLayer) map.remove(vecLayer)
   }
   centerMarkers = []
+  landfallMarkers = []
+  landfallCache.clear()
   vecLayer = null
   canvas?.remove()
   canvas = null
@@ -329,7 +399,11 @@ watch([() => props.amap, () => props.map], () => {
   ensureLayer()
 })
 watch([() => props.typhoons, () => props.selectedId], () => {
+  // 数据变化时重新推断登陆点（历史/实时详情都是静态快照，按 id 缓存）
+  landfallCache.clear()
+  for (const t of props.typhoons) landfallCache.set(t.id, detectLandfalls(t.path))
   syncMarkers()
+  syncLandfallMarkers()
   drawFrame()
 })
 

@@ -5,7 +5,7 @@
  * + 顶部数据时间与刷新。
  */
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { fetchTyphoonDetail, fetchTyphoonList } from './api/typhoon'
+import { fetchTyphoonDetail, fetchTyphoonList, fetchTyphoonYearList } from './api/typhoon'
 import type { NormalizedTyphoon, TyphoonSummary } from './types/typhoon'
 import { useAmapMap } from './composables/useAmapMap'
 import TyphoonList from './components/TyphoonList.vue'
@@ -29,6 +29,12 @@ const refreshing = ref(false)
 const listError = ref<string | null>(null)
 const updatedAt = ref<Date | null>(null)
 
+// 实时 / 历史 模式：历史模式按年份浏览停编台风
+const mode = ref<'live' | 'history'>('live')
+const historyYear = ref(new Date().getFullYear())
+// 历史详情缓存（历史数据静态，重复选中不重复请求）
+const historyCache = ref<Record<string, NormalizedTyphoon>>({})
+
 // 图层开关：云图(卫星) / 雷达 / 风场
 const showCloud = ref(false)
 const showRadar = ref(false)
@@ -48,6 +54,7 @@ function handleSelect(id: string) {
 function handleClear() {
   activeId.value = null
   typhoon.value = null
+  if (mode.value === 'history') typhoons.value = []
   detailExpanded.value = false
   mobileLegendOpen.value = false
 }
@@ -74,6 +81,21 @@ const lastInfo = computed(() => {
   return { name: lvl.name, color: lvl.color, wind: last.wind }
 })
 
+// 历史模式年份选项：1949（CMA 有记录的最早年份）~ 当前年，倒序
+const yearOptions = computed(() => {
+  const cur = new Date().getFullYear()
+  const arr: number[] = []
+  for (let y = cur; y >= 1949; y--) arr.push(y)
+  return arr
+})
+
+// 列表标题：实时=活跃台风；历史=所选年份台风
+const listLabel = computed(() =>
+  mode.value === 'live'
+    ? `活跃台风 ${list.value.length} 个`
+    : `${historyYear.value} 年台风 ${list.value.length} 个`,
+)
+
 function fmt(ms: number): string {
   const d = new Date(ms)
   const p = (n: number) => String(n).padStart(2, '0')
@@ -84,24 +106,32 @@ async function loadList() {
   loading.value = true
   listError.value = null
   try {
-    const all = await fetchTyphoonList()
-    const active = all.filter((t) => t.status === 'start')
-    list.value = active
-    // 并发拉取全部活跃台风详情（单个失败不阻塞其他）
-    const details = await Promise.all(
-      active.map((t) => fetchTyphoonDetail(t.id).catch(() => null)),
-    )
-    typhoons.value = details.filter((d): d is NormalizedTyphoon => d !== null)
-    // 选中项与最新详情同步：已停止活跃则取消选中，否则刷新其详情
-    if (activeId.value && !active.some((t) => t.id === activeId.value)) {
+    if (mode.value === 'live') {
+      const all = await fetchTyphoonList()
+      const active = all.filter((t) => t.status === 'start')
+      list.value = active
+      // 并发拉取全部活跃台风详情（单个失败不阻塞其他）
+      const details = await Promise.all(
+        active.map((t) => fetchTyphoonDetail(t.id).catch(() => null)),
+      )
+      typhoons.value = details.filter((d): d is NormalizedTyphoon => d !== null)
+      // 选中项与最新详情同步：已停止活跃则取消选中，否则刷新其详情
+      if (activeId.value && !active.some((t) => t.id === activeId.value)) {
+        activeId.value = null
+        typhoon.value = null
+      } else if (activeId.value) {
+        typhoon.value = typhoons.value.find((t) => t.id === activeId.value) ?? null
+      }
+      if (active.length === 0) {
+        typhoon.value = null
+        activeId.value = null
+      }
+    } else {
+      list.value = await fetchTyphoonYearList(historyYear.value)
+      // 年份切换后清空选中与图层（历史详情按需加载）
       activeId.value = null
       typhoon.value = null
-    } else if (activeId.value) {
-      typhoon.value = typhoons.value.find((t) => t.id === activeId.value) ?? null
-    }
-    if (active.length === 0) {
-      typhoon.value = null
-      activeId.value = null
+      typhoons.value = []
     }
     updatedAt.value = new Date()
   } catch (e) {
@@ -111,21 +141,49 @@ async function loadList() {
   }
 }
 
-function selectTyphoon(id: string) {
-  // toggle：再次点击已选中项 -> 取消选中，回到显示全部
+async function selectTyphoon(id: string) {
+  // toggle：再次点击已选中项 -> 取消选中
   if (activeId.value === id) {
     activeId.value = null
     typhoon.value = null
+    // 历史模式取消选中后清空图层（实时模式保留全部活跃台风图层）
+    if (mode.value === 'history') typhoons.value = []
     return
   }
-  activeId.value = id
-  typhoon.value = typhoons.value.find((t) => t.id === id) ?? null
+  if (mode.value === 'history') {
+    // 历史详情按需加载并缓存（静态数据，重复选中不重复请求）
+    let t = historyCache.value[id]
+    if (!t) {
+      try {
+        t = await fetchTyphoonDetail(id)
+        historyCache.value = { ...historyCache.value, [id]: t }
+      } catch (e) {
+        listError.value = e instanceof Error ? e.message : String(e)
+        return
+      }
+    }
+    activeId.value = id
+    typhoon.value = t
+    typhoons.value = [t]
+  } else {
+    activeId.value = id
+    typhoon.value = typhoons.value.find((t) => t.id === id) ?? null
+  }
 }
 
 async function refresh() {
   refreshing.value = true
   await loadList()
   refreshing.value = false
+}
+
+/** 切换 实时/历史 模式：清空选中并重新加载对应列表 */
+async function switchMode(m: 'live' | 'history') {
+  if (mode.value === m) return
+  mode.value = m
+  detailExpanded.value = false
+  mobileLegendOpen.value = false
+  await loadList()
 }
 
 function handleVisibility() {
@@ -159,7 +217,17 @@ onUnmounted(() => {
       <!-- 左上：品牌 + 台风列表 -->
       <div class="glass top-left">
         <div class="brand">🌀 实时台风路径</div>
-        <div class="sub">活跃台风 {{ list.length }} 个</div>
+        <div class="mode-toggle">
+          <button :class="{ on: mode === 'live' }" @click="switchMode('live')">实时</button>
+          <button :class="{ on: mode === 'history' }" @click="switchMode('history')">历史</button>
+        </div>
+        <div v-if="mode === 'history'" class="year-row">
+          <span class="year-label">年份</span>
+          <select v-model.number="historyYear" class="year-select" @change="loadList">
+            <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
+          </select>
+        </div>
+        <div class="sub">{{ listLabel }}</div>
         <TyphoonList :list="list" :active-id="activeId" :loading="loading" @select="selectTyphoon" />
       </div>
 
@@ -228,7 +296,16 @@ onUnmounted(() => {
         <!-- 列表态 -->
         <template v-if="!activeId">
           <div class="m-drawer-head">
-            <span>活跃台风 {{ list.length }} 个</span>
+            <span>{{ listLabel }}</span>
+          </div>
+          <div class="m-mode-row">
+            <div class="m-mode">
+              <button :class="{ on: mode === 'live' }" @click="switchMode('live')">实时</button>
+              <button :class="{ on: mode === 'history' }" @click="switchMode('history')">历史</button>
+            </div>
+            <select v-if="mode === 'history'" v-model.number="historyYear" class="year-select" @change="loadList">
+              <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
+            </select>
           </div>
           <TyphoonList :list="list" :active-id="activeId" :loading="loading" @select="handleSelect" />
         </template>
@@ -258,6 +335,8 @@ onUnmounted(() => {
     <!-- 状态提示 -->
     <div v-if="error" class="toast toast-error">{{ error }}</div>
     <div v-else-if="listError" class="toast toast-error">数据加载失败：{{ listError }}</div>
-    <div v-else-if="!loading && ready && list.length === 0 && !listError" class="toast">当前无活跃台风</div>
+    <div v-else-if="!loading && ready && list.length === 0 && !listError" class="toast">
+      {{ mode === 'live' ? '当前无活跃台风' : `${historyYear} 年暂无台风数据` }}
+    </div>
   </div>
 </template>

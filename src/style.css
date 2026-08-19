@@ -111,6 +111,55 @@ body {
   margin-bottom: 10px;
 }
 
+/* ============ 实时/历史模式切换 ============ */
+.mode-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mode-toggle button {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 180, 220, 0.25);
+  background: rgba(148, 180, 220, 0.08);
+  color: #c7d6ea;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.mode-toggle button.on {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #e6f6ff;
+}
+
+.year-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.year-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.year-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 180, 220, 0.25);
+  background: rgba(10, 18, 32, 0.92);
+  color: var(--text-main);
+  font-size: 12px;
+  outline: none;
+}
+
 /* ============ 台风列表 ============ */
 .t-list {
   overflow-y: auto;
@@ -321,6 +370,16 @@ body {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 
+.legend-landfall {
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .legend-gap {
   margin-top: 8px;
 }
@@ -448,6 +507,38 @@ body {
   font-size: 12px;
   font-weight: 600;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* ============ 登陆点标注 ============ */
+.tc-landfall {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.tc-landfall-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+
+.tc-landfall-time {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(13, 21, 38, 0.92);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
   pointer-events: none;
 }
 
@@ -597,6 +688,36 @@ body {
     font-size: 12px;
     color: var(--text-dim);
     padding: 2px 0 6px;
+  }
+  .m-mode-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .m-mode {
+    display: flex;
+    gap: 4px;
+    flex: 0 0 auto;
+  }
+  .m-mode button {
+    padding: 4px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 180, 220, 0.25);
+    background: rgba(148, 180, 220, 0.08);
+    color: #c7d6ea;
+    font-size: 11px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .m-mode button.on {
+    background: rgba(56, 189, 248, 0.18);
+    border-color: rgba(56, 189, 248, 0.6);
+    color: #e6f6ff;
+  }
+  .m-mode-row .year-select {
+    flex: 1;
+    min-width: 0;
   }
   .m-drawer-caret { font-size: 10px; color: var(--text-dim); }
   .m-info-bar {

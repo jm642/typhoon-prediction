@@ -143,6 +143,15 @@ export function normalizeTyphoon(raw: unknown[]): NormalizedTyphoon {
   return { id, nameCn, nameEn, code, status, path, forecast }
 }
 
+/** 指定年份台风列表（含当年已停编，历史台风浏览用）→ 摘要 */
+export async function fetchTyphoonYearList(year: number): Promise<TyphoonSummary[]> {
+  const res = await fetch(`${BASE}/typhoon/jsons/list_${year}`)
+  if (!res.ok) throw new Error(`年份列表接口 ${res.status}`)
+  const text = await res.text()
+  const data = unwrapJsonp(text) as { typhoonList?: unknown[][] }
+  return (data.typhoonList ?? []).map(normalizeSummary)
+}
+
 /** 活跃台风列表（filter status==='start'）→ 摘要 */
 export async function fetchTyphoonList(): Promise<TyphoonSummary[]> {
   const res = await fetch(`${BASE}/typhoon/jsons/list_default`)
