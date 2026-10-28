@@ -6,5 +6,6 @@ dist
 docs/*
 wayfinder/*
 prototype/*
-.env
-scripts
+# 排查脚本为本地临时资料，仅保留被 npm run smoke 引用的冒烟脚本
+scripts/*
+!scripts/smoke-api.mjs

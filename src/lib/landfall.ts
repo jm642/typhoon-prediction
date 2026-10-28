@@ -9,6 +9,7 @@
  * 归一化到 -180~180 再与陆地图案比对；线段跨 180° 时先解缠绕再插值。
  */
 import { LAND_POLYGONS, type LandPolygon } from '../data/land'
+import { normLng } from './geo'
 import type { TyphoonPoint } from '../types/typhoon'
 
 /** 一个登陆点（台风中心跨上海岸线的位置） */
@@ -17,11 +18,6 @@ export interface LandfallPoint {
   lat: number
   /** 登陆时刻（由相邻路径点时间线性插值，ms） */
   time: number
-}
-
-/** 归一化经度到 [-180, 180) */
-export function normLng(lng: number): number {
-  return ((lng + 180) % 360 + 360) % 360 - 180
 }
 
 // 预计算每个多边形的包围盒，命中测试先过滤再逐环判点

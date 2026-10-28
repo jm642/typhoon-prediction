@@ -11,13 +11,14 @@ export type { WindDataSet }
 
 const API_URL = 'https://typhoon.slt.zj.gov.cn/Api/LastWind'
 const CACHE_TTL = 3 * 3600 * 1000 // 缓存 3 小时
+const TIMEOUT_MS = 30_000 // 全球网格体积较大，超时放宽
 
 let cached: WindDataSet[] | null = null
 let cacheTime = 0
 let inflight: Promise<WindDataSet[]> | null = null
 
 async function fetchWindData(): Promise<WindDataSet[]> {
-  const res = await fetch(API_URL)
+  const res = await fetch(API_URL, { signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) throw new Error(`风场接口 ${res.status}`)
   const raw = await res.json()
 
@@ -26,9 +27,6 @@ async function fetchWindData(): Promise<WindDataSet[]> {
   if (!Array.isArray(datasets) || datasets.length < 2) {
     throw new Error('风场数据格式异常：缺少 U/V 分量')
   }
-
-  const uh = datasets[0].header
-  console.log(`[WindField] 数据加载完成: ${uh.nx}×${uh.ny} 网格, ${uh.dx}° 分辨率`)
   return datasets
 }
 
@@ -39,14 +37,10 @@ async function fetchWindData(): Promise<WindDataSet[]> {
 export async function fetchGlobalWind(): Promise<WindDataSet[]> {
   const now = Date.now()
 
-  if (cached && now - cacheTime < CACHE_TTL) {
-    console.log('[WindField] 使用缓存数据')
-    return cached
-  }
+  if (cached && now - cacheTime < CACHE_TTL) return cached
 
   if (inflight) return inflight
 
-  console.log('[WindField] 开始请求风场数据...')
   inflight = fetchWindData()
     .then((data) => {
       cached = data
@@ -56,15 +50,8 @@ export async function fetchGlobalWind(): Promise<WindDataSet[]> {
     })
     .catch((err) => {
       inflight = null
-      console.error('[WindField] 数据加载失败:', err)
       throw err
     })
 
   return inflight
-}
-
-/** 强制刷新缓存 */
-export function invalidateWindCache(): void {
-  cached = null
-  cacheTime = 0
 }

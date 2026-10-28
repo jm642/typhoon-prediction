@@ -9,4 +9,15 @@ export default defineConfig({
     host: true,
     port: 5173,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // ECharts / Vue 单独成块：业务代码改动不使依赖缓存失效
+        manualChunks: {
+          echarts: ['echarts/core', 'echarts/charts', 'echarts/components', 'echarts/renderers'],
+          vue: ['vue'],
+        },
+      },
+    },
+  },
 })

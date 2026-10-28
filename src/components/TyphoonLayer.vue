@@ -18,6 +18,7 @@ import { levelForCode } from '../constants/levels'
 import { WIND_CIRCLE_LEVELS } from '../constants/windCircles'
 import { GUARD_LINE_24H, GUARD_LINE_48H } from '../data/guardLines'
 import { detectLandfalls, type LandfallPoint } from '../lib/landfall'
+import { fmtShort } from '../lib/format'
 
 const props = defineProps<{
   amap: any
@@ -36,6 +37,8 @@ let landfallMarkers: any[] = []
 const landfallCache = new Map<string, LandfallPoint[]>()
 // 每帧重建：路径点/预报点的容器像素位置，供 map click 命中弹详情
 let dotHits: { x: number; y: number; point: TyphoonPoint }[] = []
+// 上次已聚焦的台风 id：只在选中项变化时 setBounds，避免刷新/自动更新打断用户视角
+let focusedId: string | null = null
 
 // —— Web Mercator 投影：米坐标系下画 km 半径才精确 ——
 const R = 6378137
@@ -72,12 +75,6 @@ function windCirclePath(centerLng: number, centerLat: number, c: WindCircle): [n
     }
   }
   return pts
-}
-
-function fmtTime(ms: number): string {
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 /**
@@ -117,7 +114,7 @@ function openInfo(point: TyphoonPoint) {
   const content = `
     <div class="tc-info">
       <div class="tc-info-lv" style="background:${lv.color}">${lv.name}</div>
-      <div class="tc-info-row"><span>时间</span><b>${fmtTime(point.time)}</b></div>
+      <div class="tc-info-row"><span>时间</span><b>${fmtShort(point.time)}</b></div>
       <div class="tc-info-row"><span>位置</span><b>${point.lat.toFixed(1)}°N ${point.lng.toFixed(1)}°E</b></div>
       <div class="tc-info-row"><span>风速</span><b>${point.wind} m/s</b></div>
       <div class="tc-info-row"><span>气压</span><b>${point.pressure} hPa</b></div>
@@ -131,7 +128,7 @@ function openLandfallInfo(lf: LandfallPoint) {
   const content = `
     <div class="tc-info">
       <div class="tc-info-lv" style="background:#ef4444">登陆点</div>
-      <div class="tc-info-row"><span>时间</span><b>${fmtTime(lf.time)}</b></div>
+      <div class="tc-info-row"><span>时间</span><b>${fmtShort(lf.time)}</b></div>
       <div class="tc-info-row"><span>位置</span><b>${lf.lat.toFixed(1)}°N ${lf.lng.toFixed(1)}°E</b></div>
     </div>`
   showInfo(content, lf.lng, lf.lat)
@@ -246,13 +243,20 @@ function drawFrame() {
   const { map, typhoons, selectedId } = props
   if (!map || !canvas) return
   const size = map.getSize()
-  if (canvas.width !== size.width || canvas.height !== size.height) {
-    canvas.width = size.width
-    canvas.height = size.height
+  // 位图按 devicePixelRatio 放大、绘制坐标缩回 CSS 像素，否则高 dpr 屏路径发虚
+  const dpr = window.devicePixelRatio || 1
+  const w = Math.round(size.width * dpr)
+  const h = Math.round(size.height * dpr)
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w
+    canvas.height = h
+    canvas.style.width = `${size.width}px`
+    canvas.style.height = `${size.height}px`
   }
   if (!ctx) ctx = canvas.getContext('2d')
   if (!ctx) return
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, size.width, size.height)
   dotHits = []
   // 24h / 48h 沿海警戒线（CMA 固定折线，与具体台风无关，常驻）
   strokeLngLatPath(GUARD_LINE_24H, '#FFFF00', 1.5, 0.85, [])
@@ -301,10 +305,11 @@ function syncMarkers() {
     centerMarkers.push(marker)
   }
   map.add(centerMarkers)
-  // 仅选中某台风时聚焦其路径范围（避开左上/底部玻璃浮层）；无选中时保持初始视图。
+  // 仅选中项变化时聚焦一次其路径范围（避开左上/底部玻璃浮层）；无选中时保持初始视图。
   // 注意：轨迹是自绘 canvas，不是高德覆盖物，setFitView(null) 感知不到其范围；
   // 故按「路径 + 预报 + 登陆点」数据显式算包围盒再 setBounds 聚焦。
-  if (selectedId) {
+  if (selectedId && focusedId !== selectedId) {
+    focusedId = selectedId
     for (const t of toDraw) {
       if (!t.path.length && !t.forecast.length) continue
       let minLng = Infinity
@@ -341,7 +346,7 @@ function syncLandfallMarkers() {
     for (const lf of lfs) {
       const marker = new amap.Marker({
         position: [lf.lng, lf.lat],
-        content: `<div class="tc-landfall"><span class="tc-landfall-badge">⚓ 登陆</span><span class="tc-landfall-time">${fmtTime(lf.time)}</span></div>`,
+        content: `<div class="tc-landfall"><span class="tc-landfall-badge">⚓ 登陆</span><span class="tc-landfall-time">${fmtShort(lf.time)}</span></div>`,
         anchor: 'center',
         zIndex: 115,
       })
@@ -386,6 +391,7 @@ function teardown() {
   centerMarkers = []
   landfallMarkers = []
   landfallCache.clear()
+  focusedId = null
   vecLayer = null
   canvas?.remove()
   canvas = null
@@ -399,6 +405,8 @@ watch([() => props.amap, () => props.map], () => {
   ensureLayer()
 })
 watch([() => props.typhoons, () => props.selectedId], () => {
+  // 取消选中后重置，下次再选同一台风时重新聚焦
+  if (!props.selectedId) focusedId = null
   // 数据变化时重新推断登陆点（历史/实时详情都是静态快照，按 id 缓存）
   landfallCache.clear()
   for (const t of props.typhoons) landfallCache.set(t.id, detectLandfalls(t.path))
@@ -408,8 +416,6 @@ watch([() => props.typhoons, () => props.selectedId], () => {
 })
 
 onUnmounted(teardown)
-
-defineExpose({})
 </script>
 
 <template>

@@ -347,12 +347,6 @@ body {
   padding: 2px 0;
 }
 
-.legend-note {
-  margin-top: 4px;
-  font-size: 9px;
-  color: #64748b;
-}
-
 .legend-line {
   width: 22px;
   border-top: 2px solid #ffff00;
@@ -580,10 +574,17 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 高德自带 InfoWindow 关闭按钮定位 */
-.amap-info-close {
-  top: 6px;
-  right: 6px;
+/* ============ 窄桌面（769–1100px）：收窄浮层，避免左右面板挤压地图 ============ */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .top-left {
+    width: 240px;
+  }
+  .bottom-left {
+    width: 280px;
+  }
+  .bottom-right {
+    left: 318px;
+  }
 }
 
 /* ============ 移动端容器：桌面端隐藏，仅 ≤768px 显示 ============

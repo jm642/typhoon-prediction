@@ -17,13 +17,6 @@ export const LEVELS: IntensityLevel[] = [
   { code: 'SuperTY', name: '超强台风', minWind: 51, color: '#e879f9' },
 ]
 
-/** 按风速判定等级 */
-export function levelForWind(wind: number): IntensityLevel {
-  let level = LEVELS[0]
-  for (const l of LEVELS) if (wind >= l.minWind) level = l
-  return level
-}
-
 /** 按 CMA 强度码判定等级（兼容大小写：SuperTY / SUPERTY） */
 export function levelForCode(code: string | null | undefined): IntensityLevel {
   if (!code) return LEVELS[0]

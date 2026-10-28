@@ -51,11 +51,16 @@ function applySatellite(show: boolean) {
 let overLayer: any = null
 let overToken = 0
 let overArea: { sw: [number, number]; ne: [number, number] } | null = null
+let overUrl: string | null = null
 
 function removeOverLayer() {
   overLayer?.setMap(null)
   overLayer = null
   overArea = null
+  if (overUrl) {
+    URL.revokeObjectURL(overUrl)
+    overUrl = null
+  }
 }
 
 function loadTileImage(url: string): Promise<HTMLImageElement> {
@@ -98,6 +103,11 @@ async function applyOverzoom() {
   const t1 = lngLatToTile(ne.getLng() + dLng, sw.getLat() - dLat, 7)
   const cols = t1.x - t0.x + 1
   const rows = t1.y - t0.y + 1
+  // 视口跨 180° 经线时 getBounds 的 sw/ne 经度会翻转，拼合范围无意义 → 跳过（云图退回 z7 瓦片）
+  if (t1.x < t0.x) {
+    console.warn('[云图] 视口跨越 180° 经线，跳过 overzoom 拼合')
+    return
+  }
   // 上限防超大屏一次拼合过多瓦片卡顿（1/2 扩展下：1080p z=8 约 45 块、1440p 约 77 块）
   if (cols < 1 || rows < 1 || cols * rows > 128) return
   try {
@@ -112,19 +122,26 @@ async function applyOverzoom() {
     imgs.forEach((img, i) => {
       ctx.drawImage(img, (coords[i].x - t0.x) * 256, (coords[i].y - t0.y) * 256)
     })
+    // 异步编码为 Blob + ObjectURL，避免 toDataURL 同步阻塞主线程（最大可达 4096×2048）
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+    if (!blob || my !== overToken) return
+    const url = URL.createObjectURL(blob)
     const bsw = tileToLngLat(t0.x, t1.y + 1, 7)
     const bne = tileToLngLat(t1.x + 1, t0.y, 7)
     const layer = new props.amap.ImageLayer({
-      url: canvas.toDataURL(),
+      url,
       bounds: new props.amap.Bounds([bsw.lng, bsw.lat], [bne.lng, bne.lat]),
       zooms: [7, 18],
       opacity: 0.7,
     })
     layer.setMap(props.map)
     const old = overLayer
+    const oldUrl = overUrl
     overLayer = layer
+    overUrl = url
     overArea = { sw: [bsw.lng, bsw.lat], ne: [bne.lng, bne.lat] }
     old?.setMap(null)
+    if (oldUrl) URL.revokeObjectURL(oldUrl)
   } catch (e) {
     console.warn('[云图] overzoom 拼合失败', e)
   }
@@ -141,7 +158,9 @@ function bindOverzoomEvents() {
 
 // ----- 雷达（NMC 分块 ImageLayer）-----
 let radarLayers: any[] = []
-let radarCache: string | undefined
+// 雷达产品约 10 分钟一更：缓存时间戳避免重复请求，但过期后必须重取，否则长开页面永远显示旧图
+const RADAR_CACHE_TTL = 10 * 60 * 1000
+let radarCache: { time: string; at: number } | null = null
 let radarToken = 0
 
 function removeRadarLayers() {
@@ -158,10 +177,12 @@ async function applyRadar(show: boolean) {
   if (show) {
     if (!radarLayers.length) {
       try {
-        const time = radarCache ?? (await fetchRadarTime())?.time
+        const cachedTime =
+          radarCache && Date.now() - radarCache.at < RADAR_CACHE_TTL ? radarCache.time : null
+        const time = cachedTime ?? (await fetchRadarTime())?.time
         if (my !== radarToken) return
         if (time) {
-          radarCache = time
+          if (!cachedTime) radarCache = { time, at: Date.now() }
           radarLayers = IMG_PARTS.map((p) => {
             const layer = new props.amap.ImageLayer({
               url: buildRadarImageUrl(time, p.part),

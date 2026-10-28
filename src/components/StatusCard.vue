@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { NormalizedTyphoon } from '../types/typhoon'
 import { levelForCode } from '../constants/levels'
+import { fmtShort } from '../lib/format'
 
 const props = defineProps<{ typhoon: NormalizedTyphoon | null }>()
 
@@ -11,12 +12,6 @@ const last = computed(() => {
   return t.path[t.path.length - 1]
 })
 const lv = computed(() => levelForCode(last.value?.level))
-
-function fmt(ms: number): string {
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
 </script>
 
 <template>
@@ -37,7 +32,7 @@ function fmt(ms: number): string {
         <span>当前位置</span><b>{{ last.lat.toFixed(1) }}°N {{ last.lng.toFixed(1) }}°E</b>
       </div>
       <div class="s-cell">
-        <span>观测时间</span><b>{{ fmt(last.time) }}</b>
+        <span>观测时间</span><b>{{ fmtShort(last.time) }}</b>
       </div>
     </div>
   </div>

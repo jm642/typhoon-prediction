@@ -1,7 +1,7 @@
 /**
  * 数据层：CMA 台风数据获取与归一化（spec §3, §4, §5）
  *
- * 唯一数据入口，只暴露两个函数。前端组件不接触原始接口。
+ * 唯一数据入口，只暴露四个函数。前端组件不接触原始接口。
  * 未来若演化到后端代理（ADR-0002），仅需修改本模块实现，组件不变。
  *
  * 接口事实（research/02-CMA接口/findings.md）：
@@ -16,8 +16,11 @@ import type {
   TyphoonSummary,
   WindCircles,
 } from '../types/typhoon'
+import { normLng } from '../lib/geo'
 
 const BASE = 'https://typhoon.nmc.cn/weatherservice'
+/** 接口无 SLA，超时避免按钮永久卡在「加载中」 */
+const TIMEOUT_MS = 15_000
 
 /**
  * 剥 JSONP 壳 → JSON 对象。
@@ -29,6 +32,13 @@ export function unwrapJsonp(text: string): unknown {
   const end = text.lastIndexOf('}')
   if (start === -1 || end === -1 || end <= start) throw new Error('非法 JSONP 响应')
   return JSON.parse(text.slice(start, end + 1))
+}
+
+/** 拉取并剥壳（统一超时） */
+async function fetchJsonp(url: string): Promise<unknown> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
+  if (!res.ok) throw new Error(`接口 ${res.status}: ${url}`)
+  return unwrapJsonp(await res.text())
 }
 
 /** 列表项：`[id, 英文名, 中文名|null, 短编号, 完整编号, 系统序号, 名称寓意|null, 状态]` */
@@ -83,7 +93,7 @@ function normalizeForecast(raw: unknown[], baseTime: number): TyphoonPoint[] {
     if ([lng, lat, pressure, wind].some((v) => Number.isNaN(v))) continue
     points.push({
       time: baseTime + hours * 3600000,
-      lng,
+      lng: normLng(lng),
       lat,
       pressure,
       wind,
@@ -104,7 +114,7 @@ function normalizePathPoint(raw: unknown[]): TyphoonPoint {
   const pressure = Number(raw[6])
   const wind = Number(raw[7])
   const circles = normalizeCircles(raw[10])
-  return { time, lng, lat, pressure, wind, level, windCircles: circles }
+  return { time, lng: normLng(lng), lat, pressure, wind, level, windCircles: circles }
 }
 
 /**
@@ -126,14 +136,17 @@ export function normalizeTyphoon(raw: unknown[]): NormalizedTyphoon {
   // 只取最新时次（从后往前第一个带预报的路径点）的预报。
   // 每个历史路径点都携带一份「当时」的预报快照，若全部收集，
   // 预报线会穿过过去并与实测路径重叠（见 ticket 排查记录）。
+  // 预报对象可能含多个机构（BABJ/上海/日本…），坐标互不相同；
+  // 只取中央气象台（BABJ）一份，避免多机构串线；无 BABJ 时才退回首个机构。
   const forecast: TyphoonPoint[] = []
   for (let i = pathRaw.length - 1; i >= 0; i--) {
     const forecastObj = pathRaw[i]?.[11]
     if (forecastObj && typeof forecastObj === 'object') {
-      const baseTime = Number(pathRaw[i][2])
-      for (const key of Object.keys(forecastObj as Record<string, unknown>)) {
-        const arr = (forecastObj as Record<string, unknown[]>)[key]
-        forecast.push(...normalizeForecast(arr, baseTime))
+      const byAgency = forecastObj as Record<string, unknown>
+      const key = 'BABJ' in byAgency ? 'BABJ' : Object.keys(byAgency)[0]
+      if (key) {
+        const baseTime = Number(pathRaw[i][2])
+        forecast.push(...normalizeForecast(byAgency[key] as unknown[], baseTime))
       }
       break
     }
@@ -143,30 +156,27 @@ export function normalizeTyphoon(raw: unknown[]): NormalizedTyphoon {
   return { id, nameCn, nameEn, code, status, path, forecast }
 }
 
-/** 指定年份台风列表（含当年已停编，历史台风浏览用）→ 摘要 */
-export async function fetchTyphoonYearList(year: number): Promise<TyphoonSummary[]> {
-  const res = await fetch(`${BASE}/typhoon/jsons/list_${year}`)
-  if (!res.ok) throw new Error(`年份列表接口 ${res.status}`)
-  const text = await res.text()
-  const data = unwrapJsonp(text) as { typhoonList?: unknown[][] }
+/** 按年份/默认取台风列表；`suffix` 为 `default` 或年份数字 */
+async function fetchTyphoonListRaw(suffix: string): Promise<TyphoonSummary[]> {
+  const data = (await fetchJsonp(`${BASE}/typhoon/jsons/list_${suffix}`)) as {
+    typhoonList?: unknown[][]
+  }
   return (data.typhoonList ?? []).map(normalizeSummary)
 }
 
-/** 活跃台风列表（filter status==='start'）→ 摘要 */
-export async function fetchTyphoonList(): Promise<TyphoonSummary[]> {
-  const res = await fetch(`${BASE}/typhoon/jsons/list_default`)
-  if (!res.ok) throw new Error(`列表接口 ${res.status}`)
-  const text = await res.text()
-  const data = unwrapJsonp(text) as { typhoonList?: unknown[][] }
-  return (data.typhoonList ?? []).map(normalizeSummary)
+/** 指定年份台风列表（含当年已停编，历史台风浏览用）→ 摘要 */
+export function fetchTyphoonYearList(year: number): Promise<TyphoonSummary[]> {
+  return fetchTyphoonListRaw(String(year))
+}
+
+/** 活跃台风列表（调用方按 status==='start' 过滤）→ 摘要 */
+export function fetchTyphoonList(): Promise<TyphoonSummary[]> {
+  return fetchTyphoonListRaw('default')
 }
 
 /** 单台风详情 → 归一化。`view_<id>` 响应的 `typhoon` 字段直接是 10 元素台风数组（非嵌套）。 */
 export async function fetchTyphoonDetail(id: string): Promise<NormalizedTyphoon> {
-  const res = await fetch(`${BASE}/typhoon/jsons/view_${id}`)
-  if (!res.ok) throw new Error(`详情接口 ${res.status}`)
-  const text = await res.text()
-  const data = unwrapJsonp(text) as { typhoon?: unknown[] }
+  const data = (await fetchJsonp(`${BASE}/typhoon/jsons/view_${id}`)) as { typhoon?: unknown[] }
   if (!data.typhoon) throw new Error(`台风详情为空: ${id}`)
   return normalizeTyphoon(data.typhoon)
 }

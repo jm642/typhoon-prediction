@@ -6,8 +6,6 @@
  * ⚠️ 坐标顺序统一为高德原生 [lng, lat]（gis.js 源是 Leaflet 的 [lat, lng]，已转换），
  * 以便直接传入 `new AMap.Bounds(sw, ne)`。
  */
-export type ImageryType = 'satellite' | 'radar'
-
 /** 图片整体覆盖范围（卫星/雷达一致） */
 export const IMG_BOUNDS = {
   latMin: 11.1784,

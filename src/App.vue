@@ -4,18 +4,21 @@
  * 全屏高德地图 + 玻璃拟态浮层（左上台风列表 / 左下实况卡 / 底部右强度曲线）
  * + 顶部数据时间与刷新。
  */
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue'
 import { fetchTyphoonDetail, fetchTyphoonList, fetchTyphoonYearList } from './api/typhoon'
 import type { NormalizedTyphoon, TyphoonSummary } from './types/typhoon'
 import { useAmapMap } from './composables/useAmapMap'
 import TyphoonList from './components/TyphoonList.vue'
 import StatusCard from './components/StatusCard.vue'
-import IntensityChart from './components/IntensityChart.vue'
 import TyphoonLayer from './components/TyphoonLayer.vue'
 import ImageryLayer from './components/ImageryLayer.vue'
 import WindFieldLayer from './components/WindFieldLayer.vue'
 import LegendContent from './components/LegendContent.vue'
 import { levelForCode } from './constants/levels'
+import { fmtDateTime } from './lib/format'
+
+// 强度曲线（ECharts）按需加载：仅在选中台风后才渲染，避免首屏连带加载 ~160KB gzip
+const IntensityChart = defineAsyncComponent(() => import('./components/IntensityChart.vue'))
 
 const mapContainer = ref<HTMLElement | null>(null)
 const { amap, map, ready, error } = useAmapMap(mapContainer)
@@ -32,13 +35,23 @@ const updatedAt = ref<Date | null>(null)
 // 实时 / 历史 模式：历史模式按年份浏览停编台风
 const mode = ref<'live' | 'history'>('live')
 const historyYear = ref(new Date().getFullYear())
-// 历史详情缓存（历史数据静态，重复选中不重复请求）
+// 历史详情缓存（历史数据静态，重复选中不重复请求）；最多保留 30 条防内存膨胀
 const historyCache = ref<Record<string, NormalizedTyphoon>>({})
+const HISTORY_CACHE_MAX = 30
+// 列表请求代际：快速切模式/年份时丢弃过期响应，避免旧响应覆盖新列表
+let listToken = 0
 
 // 图层开关：云图(卫星) / 雷达 / 风场
 const showCloud = ref(false)
 const showRadar = ref(false)
 const showWind = ref(false)
+
+// 移动端判定与 CSS 断点一致（≤768px）：只挂载一套 UI，避免隐藏端 ECharts 以 0 尺寸初始化
+const mqMobile = window.matchMedia('(max-width: 768px)')
+const isMobile = ref(mqMobile.matches)
+function onMqChange(e: MediaQueryListEvent) {
+  isMobile.value = e.matches
+}
 
 // 移动端：抽屉详情展开态（false=收起信息条）；图例弹出卡开关与卡片 DOM
 const detailExpanded = ref(false)
@@ -96,24 +109,21 @@ const listLabel = computed(() =>
     : `${historyYear.value} 年台风 ${list.value.length} 个`,
 )
 
-function fmt(ms: number): string {
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
 async function loadList() {
+  const token = ++listToken
   loading.value = true
   listError.value = null
   try {
     if (mode.value === 'live') {
       const all = await fetchTyphoonList()
+      if (token !== listToken) return
       const active = all.filter((t) => t.status === 'start')
       list.value = active
       // 并发拉取全部活跃台风详情（单个失败不阻塞其他）
       const details = await Promise.all(
         active.map((t) => fetchTyphoonDetail(t.id).catch(() => null)),
       )
+      if (token !== listToken) return
       typhoons.value = details.filter((d): d is NormalizedTyphoon => d !== null)
       // 选中项与最新详情同步：已停止活跃则取消选中，否则刷新其详情
       if (activeId.value && !active.some((t) => t.id === activeId.value)) {
@@ -127,7 +137,9 @@ async function loadList() {
         activeId.value = null
       }
     } else {
-      list.value = await fetchTyphoonYearList(historyYear.value)
+      const rows = await fetchTyphoonYearList(historyYear.value)
+      if (token !== listToken) return
+      list.value = rows
       // 年份切换后清空选中与图层（历史详情按需加载）
       activeId.value = null
       typhoon.value = null
@@ -135,9 +147,10 @@ async function loadList() {
     }
     updatedAt.value = new Date()
   } catch (e) {
+    if (token !== listToken) return
     listError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false
+    if (token === listToken) loading.value = false
   }
 }
 
@@ -156,7 +169,10 @@ async function selectTyphoon(id: string) {
     if (!t) {
       try {
         t = await fetchTyphoonDetail(id)
-        historyCache.value = { ...historyCache.value, [id]: t }
+        const next = { ...historyCache.value, [id]: t }
+        const keys = Object.keys(next)
+        if (keys.length > HISTORY_CACHE_MAX) delete next[keys[0]]
+        historyCache.value = next
       } catch (e) {
         listError.value = e instanceof Error ? e.message : String(e)
         return
@@ -194,11 +210,13 @@ onMounted(() => {
   loadList()
   document.addEventListener('visibilitychange', handleVisibility)
   document.addEventListener('click', onDocClick)
+  mqMobile.addEventListener('change', onMqChange)
 })
 
 onUnmounted(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
   document.removeEventListener('click', onDocClick)
+  mqMobile.removeEventListener('change', onMqChange)
 })
 </script>
 
@@ -213,7 +231,7 @@ onUnmounted(() => {
 
     <!-- UI 浮层容器：桌面端子项仍为绝对定位（不受 flex 影响），
          手机端媒体查询中改为纵向 flex 流式排列 -->
-    <div class="ui-layer">
+    <div v-if="!isMobile" class="ui-layer">
       <!-- 左上：品牌 + 台风列表 -->
       <div class="glass top-left">
         <div class="brand">🌀 实时台风路径</div>
@@ -222,8 +240,13 @@ onUnmounted(() => {
           <button :class="{ on: mode === 'history' }" @click="switchMode('history')">历史</button>
         </div>
         <div v-if="mode === 'history'" class="year-row">
-          <span class="year-label">年份</span>
-          <select v-model.number="historyYear" class="year-select" @change="loadList">
+          <span class="year-label" id="year-label-desk">年份</span>
+          <select
+            v-model.number="historyYear"
+            class="year-select"
+            aria-labelledby="year-label-desk"
+            @change="loadList"
+          >
             <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}</option>
           </select>
         </div>
@@ -243,8 +266,8 @@ onUnmounted(() => {
 
       <!-- 顶部中：更新时间 + 刷新 -->
       <div class="glass top-center">
-        <span class="tc-updated">{{ updatedAt ? `更新于 ${fmt(updatedAt.getTime())}` : '加载中…' }}</span>
-        <button class="tc-refresh" :disabled="refreshing" @click="refresh">
+        <span class="tc-updated">{{ updatedAt ? `更新于 ${fmtDateTime(updatedAt.getTime())}` : '加载中…' }}</span>
+        <button class="tc-refresh" :disabled="refreshing" aria-label="刷新数据" @click="refresh">
           {{ refreshing ? '刷新中…' : '↻ 刷新' }}
         </button>
       </div>
@@ -273,12 +296,12 @@ onUnmounted(() => {
     </div>
 
     <!-- 移动端 UI（≤768px 显示；桌面端由 CSS 隐藏） -->
-    <div class="m-ui">
+    <div v-if="isMobile" class="m-ui">
       <!-- 顶部细条：品牌 + 更新时间 + 刷新 -->
       <div class="m-topbar glass">
         <span class="m-brand">🌀 实时台风</span>
-        <span class="m-updated">{{ updatedAt ? `更新于 ${fmt(updatedAt.getTime())}` : '加载中…' }}</span>
-        <button class="m-refresh" :disabled="refreshing" @click="refresh">
+        <span class="m-updated">{{ updatedAt ? `更新于 ${fmtDateTime(updatedAt.getTime())}` : '加载中…' }}</span>
+        <button class="m-refresh" :disabled="refreshing" aria-label="刷新数据" @click="refresh">
           {{ refreshing ? '刷新中…' : '↻' }}
         </button>
       </div>
@@ -288,7 +311,14 @@ onUnmounted(() => {
         <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
         <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
         <button class="layer-chip" :class="{ on: showWind }" @click="showWind = !showWind">🌬 风场</button>
-        <button class="m-legend-btn" @click.stop="mobileLegendOpen = !mobileLegendOpen">☰ 图例</button>
+        <button
+          class="m-legend-btn"
+          :aria-expanded="mobileLegendOpen"
+          aria-label="图例"
+          @click.stop="mobileLegendOpen = !mobileLegendOpen"
+        >
+          ☰ 图例
+        </button>
       </div>
 
       <!-- 底部抽屉：列表态 / 详情收起态 / 详情展开态 -->
@@ -319,7 +349,8 @@ onUnmounted(() => {
             <span class="m-info-wind">{{ lastInfo?.wind }} m/s</span>
             <span class="m-drawer-caret">{{ detailExpanded ? '▾' : '▴' }}</span>
           </button>
-          <div v-show="detailExpanded" class="m-drawer-body">
+          <!-- 用 v-if 而非 v-show：收起时 ECharts 容器高度为 0，初始化会告警且尺寸错误 -->
+          <div v-if="detailExpanded" class="m-drawer-body">
             <StatusCard :typhoon="typhoon" />
             <IntensityChart :typhoon="typhoon" />
           </div>
