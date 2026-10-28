@@ -39,6 +39,8 @@ const landfallCache = new Map<string, LandfallPoint[]>()
 let dotHits: { x: number; y: number; point: TyphoonPoint }[] = []
 // 上次已聚焦的台风 id：只在选中项变化时 setBounds，避免刷新/自动更新打断用户视角
 let focusedId: string | null = null
+// 首次拿到数据时自动定位到活跃台风（之后刷新/轮询不再抢视角）
+let autoFitted = false
 
 // —— Web Mercator 投影：米坐标系下画 km 半径才精确 ——
 const R = 6378137
@@ -80,12 +82,14 @@ function windCirclePath(centerLng: number, centerLat: number, c: WindCircle): [n
 /**
  * 当前中心"最新位置"文案，格式对齐台风网 gis.js：
  * 月/日不补零、时补零、整点不带分(如 8月5日 14时 / 8月5日 14时30分)。
+ * 手机窄屏用 compact 去掉「最新位置：」前缀，否则台风贴近屏幕边缘时标签被截断。
  */
-function fmtLatest(ms: number): string {
+function fmtLatest(ms: number, compact = false): string {
   const d = new Date(ms)
   const p = (n: number) => String(n).padStart(2, '0')
   const min = d.getMinutes()
-  return `最新位置：${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}时${min === 0 ? '' : p(min) + '分'}`
+  const text = `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}时${min === 0 ? '' : p(min) + '分'}`
+  return compact ? text : `最新位置：${text}`
 }
 
 /** 打开自定义 InfoWindow（点击弹窗内容不关闭，防止 map click 误关） */
@@ -295,9 +299,10 @@ function syncMarkers() {
   for (const t of toDraw) {
     const last = t.path[t.path.length - 1]
     if (!last) continue
+    const compact = map.getSize().width <= 768
     const marker = new amap.Marker({
       position: [last.lng, last.lat],
-      content: `<div class="tc-center"><div class="tc-pulse"><span></span><span></span></div><div class="tc-latest">${fmtLatest(last.time)}</div></div>`,
+      content: `<div class="tc-center"><div class="tc-pulse"><span></span><span></span></div><div class="tc-latest">${fmtLatest(last.time, compact)}</div></div>`,
       anchor: 'center',
       zIndex: 120,
     })
@@ -305,33 +310,66 @@ function syncMarkers() {
     centerMarkers.push(marker)
   }
   map.add(centerMarkers)
-  // 仅选中项变化时聚焦一次其路径范围（避开左上/底部玻璃浮层）；无选中时保持初始视图。
+  // 选中项变化时聚焦一次；首次载入无选中时自动定位到活跃台风（避免打开页面看不到台风）。
   // 注意：轨迹是自绘 canvas，不是高德覆盖物，setFitView(null) 感知不到其范围；
   // 故按「路径 + 预报 + 登陆点」数据显式算包围盒再 setBounds 聚焦。
-  if (selectedId && focusedId !== selectedId) {
-    focusedId = selectedId
-    for (const t of toDraw) {
-      if (!t.path.length && !t.forecast.length) continue
-      let minLng = Infinity
-      let minLat = Infinity
-      let maxLng = -Infinity
-      let maxLat = -Infinity
-      for (const p of [...t.path, ...t.forecast]) {
-        if (p.lng < minLng) minLng = p.lng
-        if (p.lng > maxLng) maxLng = p.lng
-        if (p.lat < minLat) minLat = p.lat
-        if (p.lat > maxLat) maxLat = p.lat
-      }
-      for (const lf of landfallCache.get(t.id) ?? []) {
-        if (lf.lng < minLng) minLng = lf.lng
-        if (lf.lng > maxLng) maxLng = lf.lng
-        if (lf.lat < minLat) minLat = lf.lat
-        if (lf.lat > maxLat) maxLat = lf.lat
-      }
-      if (minLng === Infinity) continue
-      map.setBounds(new amap.Bounds([minLng, minLat], [maxLng, maxLat]), false, [130, 60, 170, 230], 6)
+  if (selectedId) {
+    if (focusedId !== selectedId) {
+      focusedId = selectedId
+      focusOn(toDraw)
+    }
+  } else {
+    focusedId = null
+    if (!autoFitted && typhoons.length) {
+      autoFitted = true
+      focusOn(typhoons)
     }
   }
+}
+
+/**
+ * 视野避让：桌面给左上列表卡与底部卡片留边；手机给顶部细条与底部抽屉/工具条留边。
+ * ⚠️ 避让总和必须明显小于容器尺寸——AMap 在可用区域过小时会算出错误中心
+ * （手机 390px 宽沿用桌面的左右各 230/60 曾把镜头甩到北纬 73 度）。
+ */
+function focusPadding(size: { width: number; height: number }): [number, number, number, number] {
+  if (size.width <= 768) {
+    return [Math.round(size.height * 0.08), 16, Math.round(size.height * 0.17), 16]
+  }
+  return [130, 60, 170, 230]
+}
+
+/** 按给定台风的路径 + 预报 + 登陆点包围盒聚焦视野 */
+function focusOn(list: NormalizedTyphoon[]) {
+  const { amap, map } = props
+  if (!amap || !map || list.length === 0) return
+  let minLng = Infinity
+  let minLat = Infinity
+  let maxLng = -Infinity
+  let maxLat = -Infinity
+  for (const t of list) {
+    for (const p of [...t.path, ...t.forecast]) {
+      if (p.lng < minLng) minLng = p.lng
+      if (p.lng > maxLng) maxLng = p.lng
+      if (p.lat < minLat) minLat = p.lat
+      if (p.lat > maxLat) maxLat = p.lat
+    }
+    for (const lf of landfallCache.get(t.id) ?? []) {
+      if (lf.lng < minLng) minLng = lf.lng
+      if (lf.lng > maxLng) maxLng = lf.lng
+      if (lf.lat < minLat) minLat = lf.lat
+      if (lf.lat > maxLat) maxLat = lf.lat
+    }
+  }
+  if (minLng === Infinity) return
+  // 轨迹跨 180° 经线时包围盒会横跨全球，聚焦反而更糟，保持当前视野
+  if (maxLng - minLng > 180) return
+  map.setBounds(
+    new amap.Bounds([minLng, minLat], [maxLng, maxLat]),
+    false,
+    focusPadding(map.getSize()),
+    6,
+  )
 }
 
 // 登陆点标注（DOM marker z=115，位于自绘矢量层之上、当前中心之下）
@@ -392,6 +430,7 @@ function teardown() {
   landfallMarkers = []
   landfallCache.clear()
   focusedId = null
+  autoFitted = false
   vecLayer = null
   canvas?.remove()
   canvas = null
@@ -405,8 +444,6 @@ watch([() => props.amap, () => props.map], () => {
   ensureLayer()
 })
 watch([() => props.typhoons, () => props.selectedId], () => {
-  // 取消选中后重置，下次再选同一台风时重新聚焦
-  if (!props.selectedId) focusedId = null
   // 数据变化时重新推断登陆点（历史/实时详情都是静态快照，按 id 缓存）
   landfallCache.clear()
   for (const t of props.typhoons) landfallCache.set(t.id, detectLandfalls(t.path))
