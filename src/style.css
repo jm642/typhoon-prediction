@@ -174,11 +174,22 @@ body {
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
   padding: 8px 10px;
   border-radius: 10px;
   cursor: pointer;
   border: 1px solid transparent;
   transition: background 0.15s;
+  /* 列表项是 <button>：清掉浏览器默认外观，保持原玻璃卡样式 */
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.t-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .t-item:hover {

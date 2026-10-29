@@ -20,16 +20,19 @@ function dotColor(index: number): string {
   <div class="t-list">
     <div v-if="loading" class="t-empty">加载中…</div>
     <div v-else-if="list.length === 0" class="t-empty">暂无活跃台风</div>
-    <div
+    <!-- 用 button 而非 div：可 Tab 聚焦、读屏可识别；aria-pressed 表达选中态 -->
+    <button
       v-for="(t, i) in list"
       :key="t.id"
+      type="button"
       class="t-item"
       :class="{ sel: t.id === activeId }"
+      :aria-pressed="t.id === activeId"
       @click="emit('select', t.id)"
     >
       <span class="t-dot" :style="{ background: dotColor(i) }"></span>
       <span class="t-name">{{ t.nameCn ?? t.nameEn }}</span>
       <span class="t-code">{{ t.code }}</span>
-    </div>
+    </button>
   </div>
 </template>

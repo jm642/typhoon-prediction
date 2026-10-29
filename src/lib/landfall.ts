@@ -82,7 +82,14 @@ function crossing(a: TyphoonPoint, b: TyphoonPoint): { lng: number; lat: number;
   return { lng: normLng(lerp(aX, bX, hi)), lat: lerp(a.lat, b.lat, hi), t: hi }
 }
 
-/** 从实测轨迹推断登陆点：海→陆 每段跨线记一个点 */
+/**
+ * 从实测轨迹推断登陆点：海→陆 每段跨线记一个点。
+ *
+ * 擦边过滤：110m 掩膜的海岸线经过概化，台风中心擦过海岸或小岛时可能只有一个
+ * 路径点落在陆上、下一个点又回到海里——这不是登陆。因此要求「上陆后下一个点
+ * 仍在陆上」才算数（末点无从判断，保留）。
+ * 代价：跨越极窄陆地并在一个时次（约 3 小时）内出海的情形会被漏判。
+ */
 export function detectLandfalls(path: TyphoonPoint[]): LandfallPoint[] {
   const out: LandfallPoint[] = []
   for (let i = 1; i < path.length; i++) {
@@ -90,6 +97,8 @@ export function detectLandfalls(path: TyphoonPoint[]): LandfallPoint[] {
     const b = path[i]
     if (isLand(a.lng, a.lat)) continue // 起点须在海（台风生成于洋面）
     if (!isLand(b.lng, b.lat)) continue // 未跨上陆地
+    const next = path[i + 1]
+    if (next && !isLand(next.lng, next.lat)) continue // 只碰了一个点就回海：擦边/概化误差
     const c = crossing(a, b)
     out.push({ lng: c.lng, lat: c.lat, time: a.time + (b.time - a.time) * c.t })
   }
