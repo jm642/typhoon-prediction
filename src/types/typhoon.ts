@@ -39,6 +39,14 @@ export interface TyphoonPoint {
   }
 }
 
+/** 单个机构的预报路径 */
+export interface ForecastSeries {
+  /** 机构代码：BABJ 中央气象台 / RJTD 日本气象厅 / PGTW JTWC … */
+  agency: string
+  /** 该机构的预报点（已算好 arrivalTime） */
+  points: TyphoonPoint[]
+}
+
 /** 单台风详情（归一化） */
 export interface NormalizedTyphoon {
   /** CMA 台风 ID（如 "3289093"），用于 view_<id> */
@@ -50,8 +58,12 @@ export interface NormalizedTyphoon {
   status: 'start' | 'stop'
   /** 实测路径点 */
   path: TyphoonPoint[]
-  /** 预报点（已算好 arrivalTime） */
+  /** 主预报点（BABJ 优先，否则取首个有预报的机构） */
   forecast: TyphoonPoint[]
+  /** 主预报所属机构 */
+  primaryAgency: string | null
+  /** 全部机构的预报（含主预报），多于一个时用于对比渲染 */
+  forecasts: ForecastSeries[]
 }
 
 /** 列表摘要（来自 list_default，无路径点） */

@@ -300,9 +300,85 @@ body {
   width: 100%;
 }
 
+/* ============ 路径回放 ============ */
+.playback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pb-btn {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(148, 180, 220, 0.3);
+  background: rgba(148, 180, 220, 0.1);
+  color: var(--text-main);
+  font-size: 11px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.pb-btn:hover {
+  background: rgba(148, 180, 220, 0.2);
+}
+
+.pb-range {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(148, 180, 220, 0.25);
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
+  cursor: pointer;
+}
+
+.pb-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #0b1220;
+  cursor: pointer;
+}
+
+.pb-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #0b1220;
+  cursor: pointer;
+}
+
+.pb-label {
+  flex: 0 0 auto;
+  min-width: 74px;
+  text-align: right;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ============ 顶部时间 / 刷新 ============ */
 .tc-updated {
   font-variant-numeric: tabular-nums;
+}
+
+.tc-fetch {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* 本次数据来自本地缓存（网络失败兜底），用醒目色提醒可能过期 */
+.tc-cache {
+  font-size: 11px;
+  color: #fbbf24;
 }
 
 .tc-refresh {
@@ -362,6 +438,29 @@ body {
   border-radius: 50%;
   flex: 0 0 auto;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+/* 预计登陆：与已发生的登陆点在配色/线型上区分 */
+.legend-landfall--forecast,
+.tc-landfall-badge--forecast {
+  background: rgba(14, 165, 233, 0.92);
+  border-style: dashed;
+}
+
+.tc-landfall-time--forecast {
+  border-color: rgba(14, 165, 233, 0.55);
+  border-style: dashed;
+  color: #7dd3fc;
+}
+
+.legend-line.forecast-main {
+  border-top-style: dashed;
+  border-top-color: var(--accent);
+}
+
+.legend-line.forecast-other {
+  border-top-style: dashed;
+  border-top-color: #94a3b8;
 }
 
 .legend-landfall {
@@ -763,6 +862,12 @@ body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+  .m-drawer .playback {
+    margin: 4px 0 2px;
+  }
+  .m-drawer .pb-label {
+    min-width: 64px;
   }
   .m-drawer-body .chart-body { height: 120px; }
 

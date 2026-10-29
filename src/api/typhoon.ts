@@ -11,6 +11,7 @@
  */
 
 import type {
+  ForecastSeries,
   NormalizedTyphoon,
   TyphoonPoint,
   TyphoonSummary,
@@ -136,24 +137,38 @@ export function normalizeTyphoon(raw: unknown[]): NormalizedTyphoon {
   // 只取最新时次（从后往前第一个带预报的路径点）的预报。
   // 每个历史路径点都携带一份「当时」的预报快照，若全部收集，
   // 预报线会穿过过去并与实测路径重叠（见 ticket 排查记录）。
-  // 预报对象可能含多个机构（BABJ/上海/日本…），坐标互不相同；
-  // 只取中央气象台（BABJ）一份，避免多机构串线；无 BABJ 时才退回首个机构。
-  const forecast: TyphoonPoint[] = []
+  // 预报对象按机构分键（BABJ/日本/香港…），各机构坐标不同，全部保留供对比渲染。
+  const forecasts: ForecastSeries[] = []
   for (let i = pathRaw.length - 1; i >= 0; i--) {
     const forecastObj = pathRaw[i]?.[11]
     if (forecastObj && typeof forecastObj === 'object') {
-      const byAgency = forecastObj as Record<string, unknown>
-      const key = 'BABJ' in byAgency ? 'BABJ' : Object.keys(byAgency)[0]
-      if (key) {
-        const baseTime = Number(pathRaw[i][2])
-        forecast.push(...normalizeForecast(byAgency[key] as unknown[], baseTime))
+      const baseTime = Number(pathRaw[i][2])
+      for (const [agency, raw] of Object.entries(forecastObj as Record<string, unknown>)) {
+        const points = normalizeForecast(raw as unknown[], baseTime)
+        if (points.length) {
+          points.sort((a, b) => a.time - b.time)
+          forecasts.push({ agency, points })
+        }
       }
       break
     }
   }
-  forecast.sort((a, b) => a.time - b.time)
+  // 主预报：BABJ 优先，否则取排序靠前的机构，保证渲染顺序稳定
+  forecasts.sort((a, b) => Number(b.agency === 'BABJ') - Number(a.agency === 'BABJ'))
+  const primary = forecasts[0]
+  const forecast = primary ? primary.points : []
 
-  return { id, nameCn, nameEn, code, status, path, forecast }
+  return {
+    id,
+    nameCn,
+    nameEn,
+    code,
+    status,
+    path,
+    forecast,
+    primaryAgency: primary ? primary.agency : null,
+    forecasts,
+  }
 }
 
 /** 按年份/默认取台风列表；`suffix` 为 `default` 或年份数字 */

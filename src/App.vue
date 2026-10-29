@@ -5,9 +5,10 @@
  * + 顶部数据时间与刷新。
  */
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue'
-import { fetchTyphoonDetail, fetchTyphoonList, fetchTyphoonYearList } from './api/typhoon'
-import type { NormalizedTyphoon, TyphoonSummary } from './types/typhoon'
 import { useAmapMap } from './composables/useAmapMap'
+import { useTyphoonData, type Mode } from './composables/useTyphoonData'
+import { usePlayback } from './composables/usePlayback'
+import { useLayerToggles } from './composables/useLayerToggles'
 import TyphoonList from './components/TyphoonList.vue'
 import StatusCard from './components/StatusCard.vue'
 import TyphoonLayer from './components/TyphoonLayer.vue'
@@ -15,8 +16,9 @@ import ImageryLayer from './components/ImageryLayer.vue'
 import WindFieldLayer from './components/WindFieldLayer.vue'
 import LegendContent from './components/LegendContent.vue'
 import LayerChips from './components/LayerChips.vue'
+import PlaybackBar from './components/PlaybackBar.vue'
 import { levelForCode } from './constants/levels'
-import { fmtDateTime } from './lib/format'
+import { fmtCn, fmtClock } from './lib/format'
 
 // 强度曲线（ECharts）按需加载：仅在选中台风后才渲染，避免首屏连带加载 ~160KB gzip
 const IntensityChart = defineAsyncComponent(() => import('./components/IntensityChart.vue'))
@@ -24,43 +26,38 @@ const IntensityChart = defineAsyncComponent(() => import('./components/Intensity
 const mapContainer = ref<HTMLElement | null>(null)
 const { amap, map, ready, error } = useAmapMap(mapContainer)
 
-const list = ref<TyphoonSummary[]>([])
-const typhoons = ref<NormalizedTyphoon[]>([])
-const activeId = ref<string | null>(null)
-const typhoon = ref<NormalizedTyphoon | null>(null)
-const loading = ref(false)
-const refreshing = ref(false)
-const listError = ref<string | null>(null)
-const updatedAt = ref<Date | null>(null)
+// —— 编排层：数据 / 回放 / 图层开关各自封装，组件只负责渲染与布局 ——
+const {
+  list,
+  typhoons,
+  activeId,
+  typhoon,
+  loading,
+  refreshing,
+  listError,
+  updatedAt,
+  cachedAt,
+  mode,
+  historyYear,
+  loadList,
+  selectTyphoon,
+  clearSelection,
+  refresh,
+  switchMode: switchModeRaw,
+} = useTyphoonData()
 
-// 实时 / 历史 模式：历史模式按年份浏览停编台风
-const mode = ref<'live' | 'history'>('live')
-const historyYear = ref(new Date().getFullYear())
-// 历史详情缓存（历史数据静态，重复选中不重复请求）；最多保留 30 条防内存膨胀
-const historyCache = ref<Record<string, NormalizedTyphoon>>({})
-const HISTORY_CACHE_MAX = 30
-// 列表请求代际：快速切模式/年份时丢弃过期响应，避免旧响应覆盖新列表
-let listToken = 0
-// 选中请求代际：历史模式下快速连点 A→B 时，丢弃 A 后到的详情响应
-let selectToken = 0
+const { frameIndex, playing, highlightTime, shownPoint, frameLabel, setFrameIndex, togglePlay } =
+  usePlayback(typhoon)
 
-// 图层开关：云图(卫星) / 雷达 / 风场
-const showCloud = ref(false)
-const showRadar = ref(false)
-const showWind = ref(false)
-// 异步图层加载态与错误提示（雷达取时间戳、风场拉全球网格都需要数秒）
-const radarLoading = ref(false)
-const windLoading = ref(false)
-const layerError = ref<string | null>(null)
-let layerErrorTimer = 0
-function notifyLayerError(msg: string) {
-  layerError.value = msg
-  if (layerErrorTimer) clearTimeout(layerErrorTimer)
-  layerErrorTimer = window.setTimeout(() => {
-    layerError.value = null
-    layerErrorTimer = 0
-  }, 5000)
-}
+const {
+  showCloud,
+  showRadar,
+  showWind,
+  radarLoading,
+  windLoading,
+  layerError,
+  notifyLayerError,
+} = useLayerToggles()
 
 // 移动端判定与 CSS 断点一致（≤768px）：只挂载一套 UI，避免隐藏端 ECharts 以 0 尺寸初始化
 const mqMobile = window.matchMedia('(max-width: 768px)')
@@ -74,17 +71,14 @@ const detailExpanded = ref(false)
 const mobileLegendOpen = ref(false)
 const legendPopEl = ref<HTMLElement | null>(null)
 
-// 移动端：选中台风时重置为收起态并关闭图例弹出；取消选中时清空图例弹出
+// 移动端：选中台风时收起详情并关闭图例弹出
 function handleSelect(id: string) {
   selectTyphoon(id)
   detailExpanded.value = false
   mobileLegendOpen.value = false
 }
 function handleClear() {
-  selectToken++
-  activeId.value = null
-  typhoon.value = null
-  if (mode.value === 'history') typhoons.value = []
+  clearSelection()
   detailExpanded.value = false
   mobileLegendOpen.value = false
 }
@@ -102,13 +96,19 @@ function onDocClick(e: MouseEvent) {
   }
 }
 
-// 移动端抽屉信息条：一次性取出最后一个路径点的强度名/色/风速
+// 移动端抽屉信息条：当前路径点的强度名/色/风速
 const lastInfo = computed(() => {
-  const t = typhoon.value
+  const p = shownPoint.value
+  if (!p) return null
+  const lvl = levelForCode(p.level, p.wind)
+  return { name: lvl.name, color: lvl.color, wind: p.wind }
+})
+
+// 数据时次（观测时间，比「拉取时刻」更诚实）；无选中时取第一个台风
+const dataTime = computed(() => {
+  const t = typhoon.value ?? typhoons.value[0]
   if (!t || t.path.length === 0) return null
-  const last = t.path[t.path.length - 1]
-  const lvl = levelForCode(last.level, last.wind)
-  return { name: lvl.name, color: lvl.color, wind: last.wind }
+  return t.path[t.path.length - 1].time
 })
 
 // 历史模式年份选项：1949（CMA 有记录的最早年份）~ 当前年，倒序
@@ -126,121 +126,20 @@ const listLabel = computed(() =>
     : `${historyYear.value} 年台风 ${list.value.length} 个`,
 )
 
-async function loadList() {
-  const token = ++listToken
-  loading.value = true
-  listError.value = null
-  try {
-    if (mode.value === 'live') {
-      const all = await fetchTyphoonList()
-      if (token !== listToken) return
-      const active = all.filter((t) => t.status === 'start')
-      list.value = active
-      // 并发拉取全部活跃台风详情（单个失败不阻塞其他）
-      const details = await Promise.all(
-        active.map((t) => fetchTyphoonDetail(t.id).catch(() => null)),
-      )
-      if (token !== listToken) return
-      typhoons.value = details.filter((d): d is NormalizedTyphoon => d !== null)
-      // 选中项与最新详情同步：已停止活跃则取消选中，否则刷新其详情
-      if (activeId.value && !active.some((t) => t.id === activeId.value)) {
-        activeId.value = null
-        typhoon.value = null
-      } else if (activeId.value) {
-        typhoon.value = typhoons.value.find((t) => t.id === activeId.value) ?? null
-      }
-      if (active.length === 0) {
-        typhoon.value = null
-        activeId.value = null
-      }
-    } else {
-      const rows = await fetchTyphoonYearList(historyYear.value)
-      if (token !== listToken) return
-      list.value = rows
-      // 年份切换后清空选中与图层（历史详情按需加载）
-      activeId.value = null
-      typhoon.value = null
-      typhoons.value = []
-    }
-    updatedAt.value = new Date()
-  } catch (e) {
-    if (token !== listToken) return
-    listError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    if (token === listToken) loading.value = false
-  }
-}
-
-async function selectTyphoon(id: string) {
-  const token = ++selectToken
-  // toggle：再次点击已选中项 -> 取消选中
-  if (activeId.value === id) {
-    activeId.value = null
-    typhoon.value = null
-    // 历史模式取消选中后清空图层（实时模式保留全部活跃台风图层）
-    if (mode.value === 'history') typhoons.value = []
-    return
-  }
-  if (mode.value === 'history') {
-    // 历史详情按需加载并缓存（静态数据，重复选中不重复请求）
-    let t = historyCache.value[id]
-    if (!t) {
-      try {
-        t = await fetchTyphoonDetail(id)
-        const next = { ...historyCache.value, [id]: t }
-        const keys = Object.keys(next)
-        if (keys.length > HISTORY_CACHE_MAX) delete next[keys[0]]
-        historyCache.value = next
-      } catch (e) {
-        if (token !== selectToken) return
-        listError.value = e instanceof Error ? e.message : String(e)
-        return
-      }
-    }
-    // 期间用户又点了别的台风或切了模式 → 丢弃这次结果，避免慢响应覆盖新选中
-    if (token !== selectToken || mode.value !== 'history') return
-    activeId.value = id
-    typhoon.value = t
-    typhoons.value = [t]
-  } else {
-    activeId.value = id
-    typhoon.value = typhoons.value.find((t) => t.id === id) ?? null
-  }
-}
-
-async function refresh() {
-  refreshing.value = true
-  await loadList()
-  refreshing.value = false
-}
-
-/** 切换 实时/历史 模式：清空选中并重新加载对应列表 */
-async function switchMode(m: 'live' | 'history') {
-  if (mode.value === m) return
-  selectToken++
-  mode.value = m
+async function switchMode(m: Mode) {
   detailExpanded.value = false
   mobileLegendOpen.value = false
-  await loadList()
-}
-
-function handleVisibility() {
-  // 历史数据是静态的：自动刷新既无意义，又会清掉当前选中的台风
-  if (document.visibilityState === 'visible' && mode.value === 'live') refresh()
+  await switchModeRaw(m)
 }
 
 onMounted(() => {
-  loadList()
-  document.addEventListener('visibilitychange', handleVisibility)
   document.addEventListener('click', onDocClick)
   mqMobile.addEventListener('change', onMqChange)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('visibilitychange', handleVisibility)
   document.removeEventListener('click', onDocClick)
   mqMobile.removeEventListener('change', onMqChange)
-  if (layerErrorTimer) clearTimeout(layerErrorTimer)
 })
 </script>
 
@@ -248,7 +147,14 @@ onUnmounted(() => {
   <div class="app">
     <div ref="mapContainer" class="map-container" />
 
-    <TyphoonLayer :amap="amap" :map="map" :typhoons="typhoons" :selected-id="activeId" />
+    <TyphoonLayer
+      :amap="amap"
+      :map="map"
+      :typhoons="typhoons"
+      :selected-id="activeId"
+      :frame-index="frameIndex"
+      :highlight-time="highlightTime"
+    />
 
     <ImageryLayer
       :amap="amap"
@@ -295,17 +201,31 @@ onUnmounted(() => {
 
       <!-- 底部左：实况卡（选中某台风时才显示） -->
       <div v-if="typhoon" class="glass bottom-left">
-        <StatusCard :typhoon="typhoon" />
+        <StatusCard :typhoon="typhoon" :frame-index="frameIndex" />
       </div>
 
-      <!-- 底部右：强度曲线（选中某台风时才显示） -->
+      <!-- 底部右：路径回放 + 强度曲线（选中某台风时才显示） -->
       <div v-if="typhoon" class="glass bottom-right">
-        <IntensityChart :typhoon="typhoon" />
+        <PlaybackBar
+          v-if="typhoon.path.length > 1"
+          :total="typhoon.path.length"
+          :index="frameIndex"
+          :playing="playing"
+          :label="frameLabel"
+          @update:index="setFrameIndex"
+          @toggle="togglePlay"
+        />
+        <IntensityChart :typhoon="typhoon" @hover="highlightTime = $event" />
       </div>
 
-      <!-- 顶部中：更新时间 + 刷新 -->
+      <!-- 顶部中：数据时次 + 拉取时间 + 刷新 -->
       <div class="glass top-center">
-        <span class="tc-updated">{{ updatedAt ? `更新于 ${fmtDateTime(updatedAt.getTime())}` : '加载中…' }}</span>
+        <span class="tc-updated">
+          <template v-if="dataTime">数据 {{ fmtCn(dataTime) }}</template>
+          <template v-else>加载中…</template>
+          <small v-if="cachedAt" class="tc-cache"> · 缓存于 {{ fmtClock(cachedAt.getTime()) }}（网络异常）</small>
+          <small v-else-if="updatedAt" class="tc-fetch"> · {{ fmtClock(updatedAt.getTime()) }} 拉取</small>
+        </span>
         <button class="tc-refresh" :disabled="refreshing" aria-label="刷新数据" @click="refresh">
           {{ refreshing ? '刷新中…' : '↻ 刷新' }}
         </button>
@@ -337,7 +257,11 @@ onUnmounted(() => {
       <!-- 顶部细条：品牌 + 更新时间 + 刷新 -->
       <div class="m-topbar glass">
         <span class="m-brand">🌀 实时台风</span>
-        <span class="m-updated">{{ updatedAt ? `更新于 ${fmtDateTime(updatedAt.getTime())}` : '加载中…' }}</span>
+        <span class="m-updated">
+          <template v-if="dataTime">数据 {{ fmtCn(dataTime) }}</template>
+          <template v-else>加载中…</template>
+          <small v-if="cachedAt" class="tc-cache"> · 缓存</small>
+        </span>
         <button class="m-refresh" :disabled="refreshing" aria-label="刷新数据" @click="refresh">
           {{ refreshing ? '刷新中…' : '↻' }}
         </button>
@@ -391,10 +315,19 @@ onUnmounted(() => {
             <span class="m-info-wind">{{ lastInfo?.wind }} m/s</span>
             <span class="m-drawer-caret">{{ detailExpanded ? '▾' : '▴' }}</span>
           </button>
+          <PlaybackBar
+            v-if="typhoon.path.length > 1"
+            :total="typhoon.path.length"
+            :index="frameIndex"
+            :playing="playing"
+            :label="frameLabel"
+            @update:index="setFrameIndex"
+            @toggle="togglePlay"
+          />
           <!-- 用 v-if 而非 v-show：收起时 ECharts 容器高度为 0，初始化会告警且尺寸错误 -->
           <div v-if="detailExpanded" class="m-drawer-body">
-            <StatusCard :typhoon="typhoon" />
-            <IntensityChart :typhoon="typhoon" />
+            <StatusCard :typhoon="typhoon" :frame-index="frameIndex" />
+            <IntensityChart :typhoon="typhoon" @hover="highlightTime = $event" />
           </div>
         </template>
       </div>

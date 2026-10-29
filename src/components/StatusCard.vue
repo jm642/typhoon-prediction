@@ -4,12 +4,17 @@ import type { NormalizedTyphoon } from '../types/typhoon'
 import { levelForCode } from '../constants/levels'
 import { fmtShort } from '../lib/format'
 
-const props = defineProps<{ typhoon: NormalizedTyphoon | null }>()
+const props = defineProps<{
+  typhoon: NormalizedTyphoon | null
+  /** 路径回放游标；null = 显示最新时次 */
+  frameIndex?: number | null
+}>()
 
 const last = computed(() => {
   const t = props.typhoon
   if (!t || t.path.length === 0) return null
-  return t.path[t.path.length - 1]
+  const i = props.frameIndex
+  return i == null ? t.path[t.path.length - 1] : t.path[Math.min(i, t.path.length - 1)]
 })
 const lv = computed(() => levelForCode(last.value?.level, last.value?.wind))
 </script>
@@ -32,7 +37,7 @@ const lv = computed(() => levelForCode(last.value?.level, last.value?.wind))
         <span>当前位置</span><b>{{ last.lat.toFixed(1) }}°N {{ last.lng.toFixed(1) }}°E</b>
       </div>
       <div class="s-cell">
-        <span>观测时间</span><b>{{ fmtShort(last.time) }}</b>
+        <span>{{ frameIndex == null ? '观测时间' : '回放时次' }}</span><b>{{ fmtShort(last.time) }}</b>
       </div>
     </div>
   </div>

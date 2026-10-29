@@ -83,17 +83,23 @@ function normalizeTyphoon(raw) {
   const pathRaw = Array.isArray(raw[8]) ? raw[8] : []
   const path = pathRaw.map(normalizePathPoint)
   // 只取最新时次（从后往前第一个带预报的路径点）的预报，避免预报线穿过过去；
-  // 多机构时只取 BABJ，无 BABJ 才退回首个机构。
-  const forecast = []
+  // 各机构预报全部保留，BABJ 优先作为主预报。
+  const forecasts = []
   for (let i = pathRaw.length - 1; i >= 0; i--) {
     const fo = pathRaw[i]?.[11]
     if (fo && typeof fo === 'object') {
-      const key = 'BABJ' in fo ? 'BABJ' : Object.keys(fo)[0]
-      if (key) forecast.push(...normalizeForecast(fo[key], Number(pathRaw[i][2])))
+      const base = Number(pathRaw[i][2])
+      for (const [agency, rawPoints] of Object.entries(fo)) {
+        const points = normalizeForecast(rawPoints, base)
+        if (!points.length) continue
+        points.sort((a, b) => a.time - b.time)
+        forecasts.push({ agency, points })
+      }
       break
     }
   }
-  forecast.sort((a, b) => a.time - b.time)
+  forecasts.sort((a, b) => Number(b.agency === 'BABJ') - Number(a.agency === 'BABJ'))
+  const primary = forecasts[0]
   return {
     id: String(raw[0]),
     nameEn: String(raw[1]),
@@ -101,7 +107,9 @@ function normalizeTyphoon(raw) {
     code: String(raw[3]),
     status: raw[7] === 'start' ? 'start' : 'stop',
     path,
-    forecast,
+    forecast: primary ? primary.points : [],
+    primaryAgency: primary ? primary.agency : null,
+    forecasts,
   }
 }
 
@@ -130,6 +138,7 @@ async function main() {
         '| 风圈', wc ? `${wc.length}档 ${JSON.stringify(wc)}` : '无'
       )
     }
+    console.log('    预报机构:', t.forecasts.map((s) => `${s.agency}(${s.points.length})`).join(', ') || '无')
     if (t.forecast.length) {
       const f = t.forecast[0]
       console.log('    首个预报:', new Date(f.forecast.arrivalTime).toISOString(), '| +', f.forecast.hours, 'h | 风', f.wind, 'm/s')

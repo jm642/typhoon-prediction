@@ -9,16 +9,21 @@ import { init, use, type ECharts } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { NormalizedTyphoon } from '../types/typhoon'
+import type { NormalizedTyphoon, TyphoonPoint } from '../types/typhoon'
 import { fmtHour } from '../lib/format'
 
 use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{ typhoon: NormalizedTyphoon | null }>()
 
+// hover 时把对应时次抛给地图，用于高亮路径点
+const emit = defineEmits<{ hover: [time: number | null] }>()
+
 const el = ref<HTMLElement | null>(null)
 let chart: ECharts | null = null
 let ro: ResizeObserver | null = null
+/** 与 series data 同序的路径点，用于 showTip 的 dataIndex → 时间戳 */
+let sortedPoints: TyphoonPoint[] = []
 
 function render() {
   if (!chart) return
@@ -28,6 +33,7 @@ function render() {
     return
   }
   const pts = [...t.path].sort((a, b) => a.time - b.time)
+  sortedPoints = pts
   // 时间轴（而非类目轴）：历史台风缺时次时点位间距才真实，等距排布会失真
   const wind = pts.map((p) => [p.time, p.wind])
   const press = pts.map((p) => [p.time, p.pressure])
@@ -91,6 +97,13 @@ function render() {
 onMounted(() => {
   if (el.value) {
     chart = init(el.value)
+    // 轴触发提示出现/消失 → 通知地图高亮对应路径点
+    chart.on('showTip', (e: unknown) => {
+      const i = (e as { dataIndex?: number }).dataIndex
+      if (typeof i === 'number' && sortedPoints[i]) emit('hover', sortedPoints[i].time)
+    })
+    chart.on('hideTip', () => emit('hover', null))
+    chart.on('globalout', () => emit('hover', null))
     render()
     // 容器尺寸变化（如抽屉展开/收起）时自动 resize
     ro = new ResizeObserver(() => chart?.resize())

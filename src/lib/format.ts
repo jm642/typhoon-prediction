@@ -17,7 +17,19 @@ export function fmtShort(ms: number): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** MM-DD HH:00（强度曲线横轴，数据为逐时次整点） */
+/** M月D日 HH时（数据时次展示） */
+export function fmtCn(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}时`
+}
+
+/** HH:mm（拉取时刻） */
+export function fmtClock(ms: number): string {
+  const d = new Date(ms)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** MM-DD HH:00（强度曲线横轴，数据为逐小时整点） */
 export function fmtHour(ms: number): string {
   const d = new Date(ms)
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:00`
