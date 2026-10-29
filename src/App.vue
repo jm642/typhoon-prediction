@@ -14,6 +14,7 @@ import TyphoonLayer from './components/TyphoonLayer.vue'
 import ImageryLayer from './components/ImageryLayer.vue'
 import WindFieldLayer from './components/WindFieldLayer.vue'
 import LegendContent from './components/LegendContent.vue'
+import LayerChips from './components/LayerChips.vue'
 import { levelForCode } from './constants/levels'
 import { fmtDateTime } from './lib/format'
 
@@ -40,11 +41,26 @@ const historyCache = ref<Record<string, NormalizedTyphoon>>({})
 const HISTORY_CACHE_MAX = 30
 // 列表请求代际：快速切模式/年份时丢弃过期响应，避免旧响应覆盖新列表
 let listToken = 0
+// 选中请求代际：历史模式下快速连点 A→B 时，丢弃 A 后到的详情响应
+let selectToken = 0
 
 // 图层开关：云图(卫星) / 雷达 / 风场
 const showCloud = ref(false)
 const showRadar = ref(false)
 const showWind = ref(false)
+// 异步图层加载态与错误提示（雷达取时间戳、风场拉全球网格都需要数秒）
+const radarLoading = ref(false)
+const windLoading = ref(false)
+const layerError = ref<string | null>(null)
+let layerErrorTimer = 0
+function notifyLayerError(msg: string) {
+  layerError.value = msg
+  if (layerErrorTimer) clearTimeout(layerErrorTimer)
+  layerErrorTimer = window.setTimeout(() => {
+    layerError.value = null
+    layerErrorTimer = 0
+  }, 5000)
+}
 
 // 移动端判定与 CSS 断点一致（≤768px）：只挂载一套 UI，避免隐藏端 ECharts 以 0 尺寸初始化
 const mqMobile = window.matchMedia('(max-width: 768px)')
@@ -65,6 +81,7 @@ function handleSelect(id: string) {
   mobileLegendOpen.value = false
 }
 function handleClear() {
+  selectToken++
   activeId.value = null
   typhoon.value = null
   if (mode.value === 'history') typhoons.value = []
@@ -90,7 +107,7 @@ const lastInfo = computed(() => {
   const t = typhoon.value
   if (!t || t.path.length === 0) return null
   const last = t.path[t.path.length - 1]
-  const lvl = levelForCode(last.level)
+  const lvl = levelForCode(last.level, last.wind)
   return { name: lvl.name, color: lvl.color, wind: last.wind }
 })
 
@@ -155,6 +172,7 @@ async function loadList() {
 }
 
 async function selectTyphoon(id: string) {
+  const token = ++selectToken
   // toggle：再次点击已选中项 -> 取消选中
   if (activeId.value === id) {
     activeId.value = null
@@ -174,10 +192,13 @@ async function selectTyphoon(id: string) {
         if (keys.length > HISTORY_CACHE_MAX) delete next[keys[0]]
         historyCache.value = next
       } catch (e) {
+        if (token !== selectToken) return
         listError.value = e instanceof Error ? e.message : String(e)
         return
       }
     }
+    // 期间用户又点了别的台风或切了模式 → 丢弃这次结果，避免慢响应覆盖新选中
+    if (token !== selectToken || mode.value !== 'history') return
     activeId.value = id
     typhoon.value = t
     typhoons.value = [t]
@@ -196,6 +217,7 @@ async function refresh() {
 /** 切换 实时/历史 模式：清空选中并重新加载对应列表 */
 async function switchMode(m: 'live' | 'history') {
   if (mode.value === m) return
+  selectToken++
   mode.value = m
   detailExpanded.value = false
   mobileLegendOpen.value = false
@@ -203,7 +225,8 @@ async function switchMode(m: 'live' | 'history') {
 }
 
 function handleVisibility() {
-  if (document.visibilityState === 'visible') refresh()
+  // 历史数据是静态的：自动刷新既无意义，又会清掉当前选中的台风
+  if (document.visibilityState === 'visible' && mode.value === 'live') refresh()
 }
 
 onMounted(() => {
@@ -217,6 +240,7 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
   document.removeEventListener('click', onDocClick)
   mqMobile.removeEventListener('change', onMqChange)
+  if (layerErrorTimer) clearTimeout(layerErrorTimer)
 })
 </script>
 
@@ -226,8 +250,23 @@ onUnmounted(() => {
 
     <TyphoonLayer :amap="amap" :map="map" :typhoons="typhoons" :selected-id="activeId" />
 
-    <ImageryLayer :amap="amap" :map="map" :show-cloud="showCloud" :show-radar="showRadar" />
-    <WindFieldLayer :amap="amap" :map="map" :enabled="showWind" />
+    <ImageryLayer
+      :amap="amap"
+      :map="map"
+      :show-cloud="showCloud"
+      :show-radar="showRadar"
+      @loading="radarLoading = true"
+      @ready="radarLoading = false"
+      @error="notifyLayerError"
+    />
+    <WindFieldLayer
+      :amap="amap"
+      :map="map"
+      :enabled="showWind"
+      @loading="windLoading = true"
+      @ready="windLoading = false"
+      @error="notifyLayerError"
+    />
 
     <!-- UI 浮层容器：桌面端子项仍为绝对定位（不受 flex 影响），
          手机端媒体查询中改为纵向 flex 流式排列 -->
@@ -280,15 +319,13 @@ onUnmounted(() => {
           <div class="legend-layers">
             <div class="legend-title legend-gap">图层开关</div>
             <div class="layer-toggles">
-              <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
-              <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
-              <button
-                class="layer-chip"
-                :class="{ on: showWind }"
-                @click="showWind = !showWind"
-              >
-                🌬 全球风场
-              </button>
+              <LayerChips
+                v-model:cloud="showCloud"
+                v-model:radar="showRadar"
+                v-model:wind="showWind"
+                :radar-loading="radarLoading"
+                :wind-loading="windLoading"
+              />
             </div>
           </div>
         </div>
@@ -308,9 +345,14 @@ onUnmounted(() => {
 
       <!-- 底部工具条：图层开关 + 图例 -->
       <div class="m-toolbar glass">
-        <button class="layer-chip" :class="{ on: showCloud }" @click="showCloud = !showCloud">🛰 云图</button>
-        <button class="layer-chip" :class="{ on: showRadar }" @click="showRadar = !showRadar">📡 雷达</button>
-        <button class="layer-chip" :class="{ on: showWind }" @click="showWind = !showWind">🌬 风场</button>
+        <LayerChips
+          v-model:cloud="showCloud"
+          v-model:radar="showRadar"
+          v-model:wind="showWind"
+          :radar-loading="radarLoading"
+          :wind-loading="windLoading"
+          compact
+        />
         <button
           class="m-legend-btn"
           :aria-expanded="mobileLegendOpen"
@@ -366,6 +408,7 @@ onUnmounted(() => {
     <!-- 状态提示 -->
     <div v-if="error" class="toast toast-error">{{ error }}</div>
     <div v-else-if="listError" class="toast toast-error">数据加载失败：{{ listError }}</div>
+    <div v-else-if="layerError" class="toast toast-error">{{ layerError }}</div>
     <div v-else-if="!loading && ready && list.length === 0 && !listError" class="toast">
       {{ mode === 'live' ? '当前无活跃台风' : `${historyYear} 年暂无台风数据` }}
     </div>

@@ -406,6 +406,12 @@ body {
   color: #e6f6ff;
 }
 
+/* 图层数据加载中（雷达/风场需网络请求，期间置灰并显示 ⏳） */
+.layer-chip.loading {
+  opacity: 0.7;
+  cursor: progress;
+}
+
 .layer-chip:disabled {
   opacity: 0.4;
   cursor: not-allowed;

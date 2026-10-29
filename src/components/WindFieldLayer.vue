@@ -24,6 +24,9 @@ const props = defineProps<{
   enabled: boolean
 }>()
 
+// 全球网格数据体积大、耗时数秒：向父组件报告加载态/失败，便于按钮置灰与提示
+const emit = defineEmits<{ loading: []; ready: []; error: [message: string] }>()
+
 const REDRAW_DELAY = 750 // 对齐 leaflet-velocity 的 onDrawLayer debounce
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -130,16 +133,25 @@ async function start() {
   const map = props.map
   const amap = props.amap
   const canvas = canvasRef.value
-  if (!map || !amap || !canvas || windy || !props.enabled) return
+  if (!map || !amap || !canvas || windy || !props.enabled) {
+    emit('ready')
+    return
+  }
 
+  emit('loading')
   let data: WindDataSet[]
   try {
     data = await fetchGlobalWind()
   } catch (err) {
     console.error('[WindFieldLayer] 数据加载失败:', err)
+    emit('error', '风场数据加载失败，请稍后重试')
+    emit('ready')
     return
   }
-  if (aborted || !props.enabled) return
+  if (aborted || !props.enabled) {
+    emit('ready')
+    return
+  }
 
   ctx = canvas.getContext('2d')
   if (!ctx) return
@@ -195,6 +207,7 @@ async function start() {
 
   sizeCanvas()
   startWindy()
+  emit('ready')
 }
 
 function stop() {

@@ -11,7 +11,7 @@ const last = computed(() => {
   if (!t || t.path.length === 0) return null
   return t.path[t.path.length - 1]
 })
-const lv = computed(() => levelForCode(last.value?.level))
+const lv = computed(() => levelForCode(last.value?.level, last.value?.wind))
 </script>
 
 <template>

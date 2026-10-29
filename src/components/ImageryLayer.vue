@@ -26,6 +26,9 @@ const props = defineProps<{
   showRadar: boolean
 }>()
 
+// 雷达取时间戳是网络请求，向父组件报告加载态/失败，便于按钮置灰与提示
+const emit = defineEmits<{ loading: []; ready: []; error: [message: string] }>()
+
 // ----- 云图（GIBS TileLayer）-----
 let satLayer: any = null
 
@@ -162,6 +165,7 @@ let radarLayers: any[] = []
 const RADAR_CACHE_TTL = 10 * 60 * 1000
 let radarCache: { time: string; at: number } | null = null
 let radarToken = 0
+let radarTimer = 0
 
 function removeRadarLayers() {
   if (props.map && radarLayers.length) {
@@ -172,36 +176,73 @@ function removeRadarLayers() {
   radarLayers = []
 }
 
+function buildRadarLayers(time: string) {
+  radarLayers = IMG_PARTS.map((p) => {
+    const layer = new props.amap.ImageLayer({
+      url: buildRadarImageUrl(time, p.part),
+      bounds: new props.amap.Bounds(p.bounds.sw, p.bounds.ne),
+      zooms: [3, 18],
+      opacity: 0.6,
+    })
+    layer.setMap(props.map)
+    return layer
+  })
+}
+
+function stopRadarTimer() {
+  if (radarTimer) {
+    clearInterval(radarTimer)
+    radarTimer = 0
+  }
+}
+
+/**
+ * 雷达图层显示期间定期检查产品时次，有新图就重建。
+ * 否则图层一直亮着就永远停在打开那一刻的画面（雷达约 10 分钟一更）。
+ */
+function startRadarTimer() {
+  if (radarTimer) return
+  radarTimer = window.setInterval(async () => {
+    if (!props.showRadar) return
+    try {
+      const t = await fetchRadarTime()
+      if (!t || t.time === radarCache?.time) return
+      radarCache = { time: t.time, at: Date.now() }
+      removeRadarLayers()
+      buildRadarLayers(t.time)
+    } catch {
+      // 单次失败忽略，等下一轮
+    }
+  }, RADAR_CACHE_TTL)
+}
+
 async function applyRadar(show: boolean) {
   const my = ++radarToken
-  if (show) {
-    if (!radarLayers.length) {
-      try {
-        const cachedTime =
-          radarCache && Date.now() - radarCache.at < RADAR_CACHE_TTL ? radarCache.time : null
-        const time = cachedTime ?? (await fetchRadarTime())?.time
-        if (my !== radarToken) return
-        if (time) {
-          if (!cachedTime) radarCache = { time, at: Date.now() }
-          radarLayers = IMG_PARTS.map((p) => {
-            const layer = new props.amap.ImageLayer({
-              url: buildRadarImageUrl(time, p.part),
-              bounds: new props.amap.Bounds(p.bounds.sw, p.bounds.ne),
-              zooms: [3, 18],
-              opacity: 0.6,
-            })
-            layer.setMap(props.map)
-            return layer
-          })
-        } else {
-          console.warn('[雷达] 当前无产品(state!=0)，稍后重试')
-        }
-      } catch (e) {
-        console.warn('[雷达] 加载失败', e)
-      }
-    }
-  } else {
+  if (!show) {
+    stopRadarTimer()
     removeRadarLayers()
+    emit('ready')
+    return
+  }
+  startRadarTimer()
+  if (radarLayers.length) return
+  emit('loading')
+  try {
+    const cachedTime =
+      radarCache && Date.now() - radarCache.at < RADAR_CACHE_TTL ? radarCache.time : null
+    const time = cachedTime ?? (await fetchRadarTime())?.time
+    if (my !== radarToken) return
+    if (!time) {
+      console.warn('[雷达] 当前无产品(state!=0)，稍后重试')
+      return
+    }
+    if (!cachedTime) radarCache = { time, at: Date.now() }
+    buildRadarLayers(time)
+  } catch (e) {
+    console.warn('[雷达] 加载失败', e)
+    emit('error', '雷达图层加载失败，请稍后重试')
+  } finally {
+    if (my === radarToken) emit('ready')
   }
 }
 
@@ -216,6 +257,7 @@ async function update() {
 watch([() => props.amap, () => props.map, () => props.showCloud, () => props.showRadar], update)
 
 onUnmounted(() => {
+  stopRadarTimer()
   if (overzoomHandler && props.map) {
     props.map.off('moveend', overzoomHandler)
     props.map.off('zoomend', overzoomHandler)

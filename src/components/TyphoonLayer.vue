@@ -114,7 +114,7 @@ function showInfo(content: string, lng: number, lat: number) {
 }
 
 function openInfo(point: TyphoonPoint) {
-  const lv = levelForCode(point.level)
+  const lv = levelForCode(point.level, point.wind)
   const content = `
     <div class="tc-info">
       <div class="tc-info-lv" style="background:${lv.color}">${lv.name}</div>
@@ -189,7 +189,7 @@ function dot(lng: number, lat: number, r: number, point: TyphoonPoint) {
   const [x, y] = p2c(lng, lat)
   ctx.beginPath()
   ctx.arc(x, y, r, 0, Math.PI * 2)
-  ctx.fillStyle = levelForCode(point.level).color
+  ctx.fillStyle = levelForCode(point.level, point.wind).color
   ctx.fill()
   ctx.strokeStyle = '#0a1424'
   ctx.lineWidth = 1
@@ -205,7 +205,7 @@ function drawTyphoon(t: NormalizedTyphoon) {
         [t.path[i - 1].lng, t.path[i - 1].lat],
         [t.path[i].lng, t.path[i].lat],
       ],
-      levelForCode(t.path[i - 1].level).color,
+      levelForCode(t.path[i - 1].level, t.path[i - 1].wind).color,
       3,
       0.9,
       []
@@ -222,7 +222,7 @@ function drawTyphoon(t: NormalizedTyphoon) {
           [chain[i - 1].lng, chain[i - 1].lat],
           [chain[i].lng, chain[i].lat],
         ],
-        levelForCode(chain[i - 1].level).color,
+        levelForCode(chain[i - 1].level, chain[i - 1].wind).color,
         2.5,
         0.7,
         [8, 6]
@@ -314,16 +314,12 @@ function syncMarkers() {
   // 注意：轨迹是自绘 canvas，不是高德覆盖物，setFitView(null) 感知不到其范围；
   // 故按「路径 + 预报 + 登陆点」数据显式算包围盒再 setBounds 聚焦。
   if (selectedId) {
-    if (focusedId !== selectedId) {
-      focusedId = selectedId
-      focusOn(toDraw)
-    }
+    // 只在真正移动了视野后才记为已聚焦：详情尚未返回时 toDraw 为空，
+    // 若提前记账，数据到达后就不会再聚焦（表现为偶尔“点了没定位”）
+    if (focusedId !== selectedId && focusOn(toDraw)) focusedId = selectedId
   } else {
     focusedId = null
-    if (!autoFitted && typhoons.length) {
-      autoFitted = true
-      focusOn(typhoons)
-    }
+    if (!autoFitted && focusOn(typhoons)) autoFitted = true
   }
 }
 
@@ -339,10 +335,10 @@ function focusPadding(size: { width: number; height: number }): [number, number,
   return [130, 60, 170, 230]
 }
 
-/** 按给定台风的路径 + 预报 + 登陆点包围盒聚焦视野 */
-function focusOn(list: NormalizedTyphoon[]) {
+/** 按给定台风的路径 + 预报 + 登陆点包围盒聚焦视野；返回是否真的移动了视野 */
+function focusOn(list: NormalizedTyphoon[]): boolean {
   const { amap, map } = props
-  if (!amap || !map || list.length === 0) return
+  if (!amap || !map || list.length === 0) return false
   let minLng = Infinity
   let minLat = Infinity
   let maxLng = -Infinity
@@ -361,15 +357,16 @@ function focusOn(list: NormalizedTyphoon[]) {
       if (lf.lat > maxLat) maxLat = lf.lat
     }
   }
-  if (minLng === Infinity) return
+  if (minLng === Infinity) return false
   // 轨迹跨 180° 经线时包围盒会横跨全球，聚焦反而更糟，保持当前视野
-  if (maxLng - minLng > 180) return
+  if (maxLng - minLng > 180) return false
   map.setBounds(
     new amap.Bounds([minLng, minLat], [maxLng, maxLat]),
     false,
     focusPadding(map.getSize()),
     6,
   )
+  return true
 }
 
 // 登陆点标注（DOM marker z=115，位于自绘矢量层之上、当前中心之下）

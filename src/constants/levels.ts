@@ -17,10 +17,23 @@ export const LEVELS: IntensityLevel[] = [
   { code: 'SuperTY', name: '超强台风', minWind: 51, color: '#e879f9' },
 ]
 
-/** 按 CMA 强度码判定等级（兼容大小写：SuperTY / SUPERTY） */
-export function levelForCode(code: string | null | undefined): IntensityLevel {
-  if (!code) return LEVELS[0]
-  const key = code.toLowerCase()
-  const level = LEVELS.find((l) => l.code.toLowerCase() === key)
-  return level ?? LEVELS[0]
+/** 按风速判定等级 */
+export function levelForWind(wind: number): IntensityLevel {
+  let level = LEVELS[0]
+  for (const l of LEVELS) if (wind >= l.minWind) level = l
+  return level
+}
+
+/**
+ * 按 CMA 强度码判定等级（兼容大小写：SuperTY / SUPERTY）。
+ * 接口可能返回六档之外的强度码（热带扰动/变性气旋等历史数据），
+ * 此时按最大风速兜底——直接回落「热带低压」会把强台风也画成绿色。
+ */
+export function levelForCode(code: string | null | undefined, wind?: number): IntensityLevel {
+  if (code) {
+    const key = code.toLowerCase()
+    const level = LEVELS.find((l) => l.code.toLowerCase() === key)
+    if (level) return level
+  }
+  return wind !== undefined && Number.isFinite(wind) ? levelForWind(wind) : LEVELS[0]
 }
